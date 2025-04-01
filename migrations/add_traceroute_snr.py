@@ -7,14 +7,51 @@ def migrate(db):
     try:
         cursor = db.cursor()
         
-        # Check if we need to modify the SNR column
+        # First check if the table exists
+        cursor.execute("""
+            SELECT COUNT(*)
+            FROM information_schema.TABLES 
+            WHERE TABLE_NAME = 'traceroute'
+        """)
+        table_exists = cursor.fetchone()[0] > 0
+
+        if not table_exists:
+            logging.info("Creating traceroute table...")
+            cursor.execute("""
+                CREATE TABLE traceroute (
+                    from_id INT UNSIGNED NOT NULL,
+                    to_id INT UNSIGNED NOT NULL,
+                    route VARCHAR(255),
+                    snr TEXT COMMENT 'Semicolon-separated SNR values, stored as integers (actual_value * 4)',
+                    ts_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_traceroute_nodes (from_id, to_id)
+                )
+            """)
+            db.commit()
+            logging.info("Created traceroute table successfully")
+            return
+
+        # Check if SNR column exists
         cursor.execute("""
             SELECT COLUMN_TYPE 
             FROM information_schema.COLUMNS 
             WHERE TABLE_NAME = 'traceroute'
             AND COLUMN_NAME = 'snr'
         """)
-        current_type = cursor.fetchone()[0]
+        result = cursor.fetchone()
+        
+        if not result:
+            # SNR column doesn't exist, add it
+            logging.info("Adding SNR column to traceroute table...")
+            cursor.execute("""
+                ALTER TABLE traceroute
+                ADD COLUMN snr TEXT COMMENT 'Semicolon-separated SNR values, stored as integers (actual_value * 4)'
+            """)
+            db.commit()
+            logging.info("Added SNR column successfully")
+            return
+            
+        current_type = result[0]
         
         if current_type.upper() == 'VARCHAR(255)':
             logging.info("Converting traceroute SNR column to more efficient format...")
@@ -55,7 +92,7 @@ def migrate(db):
             db.commit()
             logging.info("Converted SNR column successfully")
 
-        # Add index for faster lookups
+        # Add index if it doesn't exist
         cursor.execute("""
             SELECT COUNT(*) 
             FROM information_schema.STATISTICS

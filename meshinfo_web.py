@@ -33,6 +33,7 @@ app = Flask(__name__)
 app.jinja_env.globals.update(convert_to_local=convert_to_local)
 app.jinja_env.globals.update(format_timestamp=format_timestamp)
 app.jinja_env.globals.update(time_ago=time_ago)
+app.jinja_env.globals.update(min=min)  # Add this line
 
 config = configparser.ConfigParser()
 config.read("config.ini")
@@ -203,14 +204,39 @@ def telemetry():
 @app.route('/traceroutes.html')
 def traceroutes():
     md = MeshData()
+    page = request.args.get('page', 1, type=int)
+    per_page = 100  # Changed to 100 items per page
+    
     nodes = md.get_nodes()
-    traceroutes = md.get_traceroutes()
+    traceroute_data = md.get_traceroutes(page=page, per_page=per_page)
+    
+    # Calculate pagination info
+    total = traceroute_data['total']
+    start_item = (page - 1) * per_page + 1 if total > 0 else 0  # Handle empty case
+    end_item = min(page * per_page, total)
+    
+    # Create pagination info
+    pagination = {
+        'page': page,
+        'per_page': per_page,
+        'total': total,
+        'items': traceroute_data['items'],
+        'pages': (total + per_page - 1) // per_page,  # Ceiling division
+        'has_prev': page > 1,
+        'has_next': page * per_page < total,
+        'prev_num': page - 1,
+        'next_num': page + 1,
+        'start_item': start_item,
+        'end_item': end_item
+    }
+    
     return render_template(
         "traceroutes.html.j2",
         auth=auth(),
         config=config,
         nodes=nodes,
-        traceroutes=traceroutes,
+        traceroutes=traceroute_data['items'],  # Just pass the items
+        pagination=pagination,  # Pass pagination info separately
         utils=utils,
         datetime=datetime.datetime,
         timestamp=datetime.datetime.now(),

@@ -207,27 +207,63 @@ WHERE a.id = %s
         cur.close()
         return neighbors
 
-    def get_traceroutes(self):
-        tracerouts = []
-        sql = """SELECT from_id, to_id, route, snr, ts_created
-FROM traceroute ORDER BY ts_created DESC"""
+    def get_traceroutes(self, page=1, per_page=25):
+        """Get paginated traceroutes with SNR information."""
+        # Get total count first
         cur = self.db.cursor()
-        cur.execute(sql)
+        cur.execute("SELECT COUNT(*) FROM traceroute")
+        total = cur.fetchone()[0]
+        
+        # Get paginated results
+        sql = """SELECT from_id, to_id, route, 
+            COALESCE(snr, '') as snr,  
+            ts_created
+        FROM traceroute 
+        ORDER BY ts_created DESC
+        LIMIT %s OFFSET %s"""
+        
+        offset = (page - 1) * per_page
+        cur.execute(sql, (per_page, offset))
         rows = cur.fetchall()
+        
+        traceroutes = []
         for row in rows:
-            tracerouts.append(
-                {
-                    "from_id": row[0],
-                    "to_id": row[1],
-                    "route":
-                        [int(a) for a in row[2].split(";")] if row[2] else [],
-                    "snr":
-                        [int(s) / 4 for s in row[3].split(";")] if row[3] else [],
-                    "ts_created": row[4].timestamp()
-                }
-            )
+            traceroutes.append({
+                "from_id": row[0],
+                "to_id": row[1],
+                "route": [int(a) for a in row[2].split(";")] if row[2] else [],
+                "snr": [float(s) / 4 for s in row[3].split(";")] if row[3] else [],
+                "ts_created": row[4].timestamp()
+            })
         cur.close()
-        return tracerouts
+        
+        # Return dict with pagination info
+        return {
+            "items": traceroutes,
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "pages": (total + per_page - 1) // per_page,
+            "has_prev": page > 1,
+            "has_next": page * per_page < total,
+            "prev_num": page - 1,
+            "next_num": page + 1,
+            "iter_pages": lambda left_edge=2, left_current=2, right_current=2, right_edge=2: 
+                iter_pages(page, (total + per_page - 1) // per_page, 
+                        left_edge, left_current, right_current, right_edge)
+        }
+
+    def iter_pages(current_page, total_pages, left_edge=2, left_current=2, right_current=2, right_edge=2):
+        """Helper function to generate page numbers for pagination."""
+        last = 0
+        for num in range(1, total_pages + 1):
+            if (num <= left_edge or
+                (current_page - left_current - 1 < num < current_page + right_current) or
+                num > total_pages - right_edge):
+                if last + 1 != num:
+                    yield None
+                yield num
+                last = num
 
     def get_nodes(self, active=False):
         nodes = {}
