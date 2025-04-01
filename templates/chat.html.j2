@@ -5,6 +5,19 @@
 
 {% block content %}
 <div class="container pt-3">
+  <!-- Debug section -->
+    {% if debug %}
+    <div class="alert alert-info">
+      <h4>Debug Info:</h4>
+      <pre>{{ chat | tojson(indent=2) }}</pre>
+      <h4>First Message Receptions:</h4>
+      {% if chat and chat[0].receptions %}
+      <pre>{{ chat[0].receptions | tojson(indent=2) }}</pre>
+      {% else %}
+      <pre>No receptions found</pre>
+      {% endif %}
+    </div>
+    {% endif %}
   <h5>🗨️Chat</h5>
   <div class="table-responsive">
     <table class="table table-striped table-bordered">
@@ -34,9 +47,32 @@
           {% else %}
           <td>{{ message["to"] if message["to"] != "ffffffff" else "ALL"}}</td>
           {% endif %}
-          <td style="word-break: break-word;">{{ message["text"] }}</td>
-        </tr>
-        {% endfor %}
+          <td>
+              <div style="word-break: break-word; font-size: 1.1em; font-weight: 500;">{{ message["text"] }}</div>
+              {% if message.receptions %}
+              <div class="mt-2">
+                  <span class="text-muted">Heard by:</span>
+                  {% for reception in message.receptions %}
+                      {% set node_id = utils.convert_node_id_from_int_to_hex(reception.node_id) %}
+                      {% if node_id in nodes %}
+                      <a href="/node_{{ node_id }}.html" class="text-decoration-none d-inline-block mx-1">
+                          <span class="badge" 
+                                style="font-size: 90%; 
+                                      background-color: rgb(191, 228, 233); 
+                                      color: rgb(33, 37, 41);
+                                      padding: 3px 8px;
+                                      display: inline-block;" 
+                                title="SNR: {{ reception.rx_snr }}dB, RSSI: {{ reception.rx_rssi }}dBm">
+                              {{ nodes[node_id].short_name }}
+                          </span>
+                      </a>
+                      {% endif %}
+                  {% endfor %}
+              </div>
+              {% endif %}
+          </td>
+      </tr>
+      {% endfor %}
       </tbody>
     </table>
   </div>

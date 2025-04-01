@@ -60,15 +60,28 @@ class MeshData:
         }
 
     def connect_db(self):
-        self.db = mysql.connector.connect(
-            host=self.config["database"]["host"],
-            user=self.config["database"]["username"],
-            password=self.config["database"]["password"],
-            database=self.config["database"]["database"],
-            charset="utf8mb4"
-        )
-        cur = self.db.cursor()
-        cur.execute("SET NAMES utf8mb4;")
+        max_retries = 5
+        retry_delay = 10  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                self.db = mysql.connector.connect(
+                    host=self.config["database"]["host"],
+                    user=self.config["database"]["username"],
+                    password=self.config["database"]["password"],
+                    database=self.config["database"]["database"],
+                    charset="utf8mb4"
+                )
+                cur = self.db.cursor()
+                cur.execute("SET NAMES utf8mb4;")
+                cur.close()
+                return
+            except mysql.connector.Error as err:
+                if attempt < max_retries - 1:
+                    logging.warning(f"Waiting for database to become ready. Attempt {attempt + 1}/{max_retries}")
+                    time.sleep(retry_delay)
+                else:
+                    raise
 
     def get_telemetry(self, id):
         telemetry = {}
@@ -266,13 +279,27 @@ WHERE n.ts_seen > FROM_UNIXTIME(%s)"""
 
     def get_chat(self):
         chats = []
-        sql = "SELECT DISTINCT * FROM text ORDER BY ts_created DESC"
+        # Modified SQL to ensure GROUP_CONCAT is working and aliased properly
+        sql = """
+        SELECT t.*,
+            GROUP_CONCAT(
+                CONCAT_WS(':', r.received_by_id, r.rx_snr, r.rx_rssi)
+                SEPARATOR '|'
+            ) AS reception_data
+        FROM text t
+        LEFT JOIN message_reception r ON t.message_id = r.message_id
+        GROUP BY t.message_id, t.from_id, t.to_id, t.text, t.ts_created
+        ORDER BY t.ts_created DESC
+        """
         cur = self.db.cursor()
         cur.execute(sql)
         rows = cur.fetchall()
         column_names = [desc[0] for desc in cur.description]
+        logging.debug(f"Column names: {column_names}")
+        
         prev_key = ""
         for row in rows:
+            logging.debug(f"Processing row: {row}")
             record = {}
             for i in range(len(row)):
                 col = column_names[i]
@@ -280,12 +307,38 @@ WHERE n.ts_seen > FROM_UNIXTIME(%s)"""
                     record[col] = row[i].timestamp()
                 else:
                     record[col] = row[i]
+            
+            # Parse reception information
+            record["receptions"] = []
+            receptions_str = record.get("reception_data")  # Changed from "receptions" to "reception_data"
+            if receptions_str:
+                logging.debug(f"Raw receptions string: {receptions_str}")
+                for reception in receptions_str.split("|"):
+                    if reception and reception.count(':') == 2:
+                        try:
+                            node_id, snr, rssi = reception.split(":")
+                            reception_data = {
+                                "node_id": int(node_id),
+                                "rx_snr": float(snr),
+                                "rx_rssi": int(rssi)
+                            }
+                            record["receptions"].append(reception_data)
+                            logging.debug(f"Parsed reception: {reception_data}")
+                        except (ValueError, TypeError) as e:
+                            logging.warning(f"Failed to parse reception data: {reception}, error: {e}")
+                            continue
+            else:
+                logging.debug(f"No receptions found for message_id: {record.get('message_id')}")
+                    
             record["from"] = self.hex_id(record["from_id"])
             record["to"] = self.hex_id(record["to_id"])
-            msg_key = record["from"] + record["to"] + record["text"]
+            msg_key = f"{record['from']}{record['to']}{record['text']}{record['message_id']}"
             if msg_key != prev_key:
                 chats.append(record)
                 prev_key = msg_key
+                logging.debug(f"Added chat record with {len(record['receptions'])} receptions")
+        
+        logging.debug(f"Returning {len(chats)} chat records")
         return chats
 
     def get_route_coordinates(self, id):
@@ -677,26 +730,72 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FROM_UNIXTIME(%s))
         self.db.cursor().execute(sql, params)
         self.db.commit()
 
-    def store_text(self, data):
-        from_id = self.verify_node(data["from"])
-        to_id = self.verify_node(data["to"])
-        payload = dict(data["decoded"]["json_payload"])
-        sql = """INSERT INTO text
-(from_id, to_id, text, channel, ts_created)
-VALUES (%s, %s, %s, %s, NOW())"""
-        params = (
-            from_id,
-            to_id,
-            payload["text"],
-            data["channel"] if "channel" in data else 0
-        )
-        self.db.cursor().execute(sql, params)
-        self.db.commit()
-        match = re.search(
-            r"meshinfo (\d{4})",
-            payload["text"].decode(),
-            re.IGNORECASE
-        )
+    def store_text(self, data, topic):  # Add topic parameter
+        """Store text message and its reception information."""
+        if "from" not in data or "to" not in data or "decoded" not in data:
+            return
+        if "json_payload" not in data["decoded"] or "text" not in data["decoded"]["json_payload"]:
+            return
+                
+        from_id = data["from"]
+        to_id = data["to"]
+        text = data["decoded"]["json_payload"]["text"]
+        channel = data.get("channel", 0)
+        message_id = data.get("id")
+
+        if not message_id:  # Skip messages without ID
+            return
+
+        # Check if message already exists
+        cur = self.db.cursor()
+        cur.execute("SELECT 1 FROM text WHERE message_id = %s", (message_id,))
+        exists = cur.fetchone()
+        cur.close()
+
+        if not exists:
+            # Store the message only if it doesn't exist
+            sql = """INSERT INTO text
+            (from_id, to_id, text, channel, message_id, ts_created)
+            VALUES (%s, %s, %s, %s, %s, NOW())"""
+            params = (from_id, to_id, text, channel, message_id)
+            cur = self.db.cursor()
+            cur.execute(sql, params)
+            cur.close()
+            self.db.commit()
+
+        # Store reception information if this is a received message
+        if "rx_snr" in data and "rx_rssi" in data:
+            received_by = None
+            # Try to determine the receiving node from the topic
+            topic_parts = topic.split("/")
+            if len(topic_parts) > 1:
+                received_by = self.int_id(topic_parts[-1])
+
+            if received_by and received_by != from_id:  # Don't store reception by sender
+                sql = """INSERT INTO message_reception
+                (message_id, from_id, received_by_id, rx_snr, rx_rssi, rx_time)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                rx_snr = VALUES(rx_snr),
+                rx_rssi = VALUES(rx_rssi),
+                rx_time = VALUES(rx_time)"""
+                params = (
+                    message_id,
+                    from_id,
+                    received_by,
+                    data["rx_snr"],
+                    data["rx_rssi"],
+                    data.get("rx_time")
+                )
+                cur = self.db.cursor()
+                cur.execute(sql, params)
+                cur.close()
+                self.db.commit()
+
+        # Check for meshinfo command
+        if isinstance(text, bytes):
+            text = text.decode()
+        match = re.search(r"meshinfo (\d{4})", text, re.IGNORECASE)
         if match:
             otp = match.group(1)
             node = from_id
@@ -824,7 +923,7 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
         elif tp == "telemetry":
             self.store_telemetry(data)
         elif tp == "text":
-            self.store_text(data)
+            self.store_text(data, topic)  # Only one text handler, with topic parameter
 
     def setup_database(self):
         creates = [
@@ -903,7 +1002,9 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
     to_id INT UNSIGNED NOT NULL,
     channel INT UNSIGNED NOT NULL,
     text VARCHAR(255),
-    ts_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    message_id BIGINT,
+    ts_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_text_message_id (message_id)
 )""",
             """CREATE TABLE IF NOT EXISTS  meshlog (
     topic varchar(255) not null,
@@ -923,6 +1024,24 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
         for create in creates:
             cur.execute(create)
         cur.close()
+
+        # Run migrations before final commit
+        try:
+            # Use explicit path relative to meshdata.py location
+            import os
+            import sys
+            migrations_path = os.path.join(os.path.dirname(__file__), 'migrations')
+            sys.path.insert(0, os.path.dirname(__file__))
+            import migrations.add_message_reception as add_message_reception
+            add_message_reception.migrate(self.db)
+        except ImportError as e:
+            logging.error(f"Failed to import migration module: {e}")
+            # Continue with database setup even if migration fails
+            pass
+        except Exception as e:
+            logging.error(f"Failed to run migration: {e}")
+            raise
+
         self.db.commit()
 
     def import_nodes(self, filename):

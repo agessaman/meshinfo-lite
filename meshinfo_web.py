@@ -120,6 +120,7 @@ def chat():
         utils=utils,
         datetime=datetime.datetime,
         timestamp=datetime.datetime.now(),
+        debug=False,
     )
 
 
