@@ -1077,6 +1077,14 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
         except Exception as e:
             logging.error(f"Failed to run migration: {e}")
             raise
+        try:
+            import migrations.add_message_reception as add_message_reception
+            import migrations.add_traceroute_snr as add_traceroute_snr
+            add_message_reception.migrate(self.db)
+            add_traceroute_snr.migrate(self.db)
+        except ImportError as e:
+            logging.error(f"Failed to import migration module: {e}")
+            pass
 
         self.db.commit()
 
