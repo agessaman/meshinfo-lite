@@ -1019,7 +1019,7 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
     temperature FLOAT(10, 7),
     relative_humidity FLOAT(10, 7),
     barometric_pressure FLOAT(12, 7),
-    gas_resistance FLOAT(10, 7),
+    gas_resistance DOUBLE,
     current FLOAT(10, 7),
     telemetry_time TIMESTAMP,
     ts_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

@@ -376,6 +376,66 @@ def serve_static(filename):
         node_route = md.get_route_coordinates(node_id)
         telemetry_graph = draw_graph(node_telemetry)
         lp = LOSProfile(nodes, node_id)
+        
+        # Get timeout from config
+        zero_hop_timeout = int(config.get("server", "zero_hop_timeout", fallback=43200))  # Default 12 hours
+        cutoff_time = int(time.time()) - zero_hop_timeout
+        
+        # Query for zero-hop messages heard by this node (within timeout period)
+        db = md.db
+        zero_hop_heard = []
+        cursor = db.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT 
+                r.from_id,
+                COUNT(*) AS count,
+                MAX(r.rx_snr) AS best_snr,
+                AVG(r.rx_snr) AS avg_snr,
+                MAX(r.rx_time) AS last_rx_time
+            FROM 
+                message_reception r
+            WHERE
+                r.received_by_id = %s
+                AND (
+                    (r.hop_limit IS NULL AND r.hop_start IS NULL)
+                    OR
+                    (r.hop_start - r.hop_limit = 0)
+                )
+                AND r.rx_time > %s
+            GROUP BY 
+                r.from_id
+            ORDER BY
+                last_rx_time DESC
+        """, (node_id, cutoff_time))
+        zero_hop_heard = cursor.fetchall()
+        
+        # Query for zero-hop messages sent by this node and heard by others (within timeout period)
+        zero_hop_heard_by = []
+        cursor.execute("""
+            SELECT 
+                r.received_by_id,
+                COUNT(*) AS count,
+                MAX(r.rx_snr) AS best_snr,
+                AVG(r.rx_snr) AS avg_snr,
+                MAX(r.rx_time) AS last_rx_time
+            FROM 
+                message_reception r
+            WHERE
+                r.from_id = %s
+                AND (
+                    (r.hop_limit IS NULL AND r.hop_start IS NULL)
+                    OR
+                    (r.hop_start - r.hop_limit = 0)
+                )
+                AND r.rx_time > %s
+            GROUP BY 
+                r.received_by_id
+            ORDER BY
+                last_rx_time DESC
+        """, (node_id, cutoff_time))
+        zero_hop_heard_by = cursor.fetchall()
+        cursor.close()
+        
         return render_template(
                 f"node.html.j2",
                 auth=auth(),
@@ -390,7 +450,11 @@ def serve_static(filename):
                 utils=utils,
                 datetime=datetime.datetime,
                 timestamp=datetime.datetime.now(),
+                zero_hop_heard=zero_hop_heard,
+                zero_hop_heard_by=zero_hop_heard_by,
+                zero_hop_timeout=zero_hop_timeout,
             )
+
     if re.match(userp, filename):
         match = re.match(userp, filename)
         username = match.group(1)
