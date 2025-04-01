@@ -40,6 +40,25 @@ def get_packet(payload):
         se = mqtt_pb2.ServiceEnvelope()
         se.ParseFromString(payload)
         mp = se.packet
+        
+        # Extract hop information if available
+        try:
+            if hasattr(mp, 'hop_limit'):
+                mp.hop_limit = getattr(mp, 'hop_limit', 0)
+            else:
+                mp.hop_limit = None
+                
+            if hasattr(mp, 'hop_start'):
+                mp.hop_start = getattr(mp, 'hop_start', 0)
+            else:
+                mp.hop_start = None
+                
+        except Exception as e:
+            if config.get("server", "debug") == "true":
+                logging.debug(f"Hop information extraction failed: {e}")
+            mp.hop_limit = None
+            mp.hop_start = None
+            
         if mp.HasField("encrypted") and not mp.HasField("decoded"):
             return decrypt_packet(mp)
     except Exception as e:
@@ -64,6 +83,13 @@ def get_data(msg):
     j = to_json(msg)
     if "decoded" not in j:
         return None
+    
+    # Add hop information to the JSON data
+    if hasattr(msg, 'hop_limit'):
+        j["hop_limit"] = msg.hop_limit
+    if hasattr(msg, 'hop_start'):
+        j["hop_start"] = msg.hop_start
+    
     portnum = j["decoded"]["portnum"]
     if portnum == portnums_pb2.NODEINFO_APP:
         j["type"] = "nodeinfo"
@@ -108,7 +134,14 @@ def get_data(msg):
     if "type" in j:
         msg_type = j["type"]
         msg_from = j["from"]
-        logging.info(f"Received {msg_type} from {msg_from}")
+        
+        # Log hop information if it's a text message with hop data
+        if msg_type == "text" and j.get("hop_limit") is not None and j.get("hop_start") is not None:
+            hop_count = j["hop_start"] - j["hop_limit"]
+            logging.info(f"Received {msg_type} from {msg_from} with {hop_count} hops ({j['hop_limit']}/{j['hop_start']})")
+        else:
+            logging.info(f"Received {msg_type} from {msg_from}")
+            
     return j
 
 

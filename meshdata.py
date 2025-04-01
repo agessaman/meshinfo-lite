@@ -283,7 +283,7 @@ WHERE n.ts_seen > FROM_UNIXTIME(%s)"""
         sql = """
         SELECT t.*,
             GROUP_CONCAT(
-                CONCAT_WS(':', r.received_by_id, r.rx_snr, r.rx_rssi)
+                CONCAT_WS(':', r.received_by_id, r.rx_snr, r.rx_rssi, r.hop_limit, r.hop_start)
                 SEPARATOR '|'
             ) AS reception_data
         FROM text t
@@ -310,17 +310,25 @@ WHERE n.ts_seen > FROM_UNIXTIME(%s)"""
             
             # Parse reception information
             record["receptions"] = []
-            receptions_str = record.get("reception_data")  # Changed from "receptions" to "reception_data"
+            receptions_str = record.get("reception_data")
             if receptions_str:
                 logging.debug(f"Raw receptions string: {receptions_str}")
                 for reception in receptions_str.split("|"):
-                    if reception and reception.count(':') == 2:
+                    if reception and reception.count(':') >= 2:  # Ensure at least SNR and RSSI
                         try:
-                            node_id, snr, rssi = reception.split(":")
+                            parts = reception.split(":")
+                            node_id = parts[0]
+                            snr = parts[1]
+                            rssi = parts[2]
+                            hop_limit = parts[3] if len(parts) > 3 else None
+                            hop_start = parts[4] if len(parts) > 4 else None
+                            
                             reception_data = {
                                 "node_id": int(node_id),
                                 "rx_snr": float(snr),
-                                "rx_rssi": int(rssi)
+                                "rx_rssi": int(rssi),
+                                "hop_limit": int(hop_limit) if hop_limit and hop_limit != "None" else None,
+                                "hop_start": int(hop_start) if hop_start and hop_start != "None" else None
                             }
                             record["receptions"].append(reception_data)
                             logging.debug(f"Parsed reception: {reception_data}")
@@ -730,8 +738,8 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FROM_UNIXTIME(%s))
         self.db.cursor().execute(sql, params)
         self.db.commit()
 
-    def store_text(self, data, topic):  # Add topic parameter
-        """Store text message and its reception information."""
+    def store_text(self, data, topic):
+        """Store text message."""
         if "from" not in data or "to" not in data or "decoded" not in data:
             return
         if "json_payload" not in data["decoded"] or "text" not in data["decoded"]["json_payload"]:
@@ -763,35 +771,9 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FROM_UNIXTIME(%s))
             cur.close()
             self.db.commit()
 
-        # Store reception information if this is a received message
-        if "rx_snr" in data and "rx_rssi" in data:
-            received_by = None
-            # Try to determine the receiving node from the topic
-            topic_parts = topic.split("/")
-            if len(topic_parts) > 1:
-                received_by = self.int_id(topic_parts[-1])
-
-            if received_by and received_by != from_id:  # Don't store reception by sender
-                sql = """INSERT INTO message_reception
-                (message_id, from_id, received_by_id, rx_snr, rx_rssi, rx_time)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE
-                rx_snr = VALUES(rx_snr),
-                rx_rssi = VALUES(rx_rssi),
-                rx_time = VALUES(rx_time)"""
-                params = (
-                    message_id,
-                    from_id,
-                    received_by,
-                    data["rx_snr"],
-                    data["rx_rssi"],
-                    data.get("rx_time")
-                )
-                cur = self.db.cursor()
-                cur.execute(sql, params)
-                cur.close()
-                self.db.commit()
-
+        # Reception information is now handled by the main store() method
+        # No need to duplicate that code here
+        
         # Check for meshinfo command
         if isinstance(text, bytes):
             text = text.decode()
@@ -909,6 +891,27 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
             frm = data["from"]
             via = self.int_id(topic.split("/")[-1])
             self.verify_node(frm, via)
+        
+        # Extract common hop information before processing specific message types
+        message_id = data.get("id")
+        hop_limit = data.get("hop_limit")
+        hop_start = data.get("hop_start")
+        rx_snr = data.get("rx_snr")
+        rx_rssi = data.get("rx_rssi")
+        
+        # Store reception information if this is a received message with SNR/RSSI data
+        if message_id and rx_snr is not None and rx_rssi is not None:
+            received_by = None
+            # Try to determine the receiving node from the topic
+            topic_parts = topic.split("/")
+            if len(topic_parts) > 1:
+                received_by = self.int_id(topic_parts[-1])
+                
+            if received_by and received_by != data.get("from"):  # Don't store reception by sender
+                self.store_reception(message_id, data["from"], received_by, rx_snr, rx_rssi, 
+                                    data.get("rx_time"), hop_limit, hop_start)
+        
+        # Continue with the regular message type processing
         tp = data["type"]
         if tp == "nodeinfo":
             self.store_node(data)
@@ -924,6 +927,32 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
             self.store_telemetry(data)
         elif tp == "text":
             self.store_text(data, topic)  # Only one text handler, with topic parameter
+
+    def store_reception(self, message_id, from_id, received_by_id, rx_snr, rx_rssi, rx_time, hop_limit, hop_start):
+        """Store reception information for any message type with hop data."""
+        sql = """INSERT INTO message_reception
+        (message_id, from_id, received_by_id, rx_snr, rx_rssi, rx_time, hop_limit, hop_start)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+        rx_snr = VALUES(rx_snr),
+        rx_rssi = VALUES(rx_rssi),
+        rx_time = VALUES(rx_time),
+        hop_limit = VALUES(hop_limit),
+        hop_start = VALUES(hop_start)"""
+        params = (
+            message_id,
+            from_id,
+            received_by_id,
+            rx_snr,
+            rx_rssi,
+            rx_time,
+            hop_limit,
+            hop_start
+        )
+        cur = self.db.cursor()
+        cur.execute(sql, params)
+        cur.close()
+        self.db.commit()
 
     def setup_database(self):
         creates = [

@@ -44,21 +44,71 @@ def migrate(db):
         if not has_reception_table:
             logging.info("Creating message_reception table...")
             cursor.execute("""
-                CREATE TABLE message_reception (
+                CREATE TABLE IF NOT EXISTS message_reception (
+                    id INTEGER PRIMARY KEY AUTO_INCREMENT,
                     message_id BIGINT NOT NULL,
-                    from_id BIGINT NOT NULL,
-                    received_by_id BIGINT NOT NULL,
-                    rx_snr FLOAT,
-                    rx_rssi INT,
-                    rx_time BIGINT,
-                    ts_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (message_id, received_by_id),
-                    INDEX idx_message_reception_from (from_id),
-                    INDEX idx_message_reception_ts (ts_created)
+                    from_id INTEGER UNSIGNED NOT NULL,
+                    received_by_id INTEGER UNSIGNED NOT NULL,
+                    rx_time INTEGER,
+                    rx_snr REAL,
+                    rx_rssi INTEGER,
+                    hop_limit INTEGER DEFAULT NULL,
+                    hop_start INTEGER DEFAULT NULL,
+                    UNIQUE KEY unique_reception (message_id, received_by_id)
                 )
             """)
             db.commit()
             logging.info("Created message_reception table successfully")
+        else:
+            # Check if hop_limit column exists
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM information_schema.COLUMNS 
+                WHERE TABLE_NAME = 'message_reception'
+                AND COLUMN_NAME = 'hop_limit'
+            """)
+            has_hop_limit = cursor.fetchone()[0] > 0
+            
+            if not has_hop_limit:
+                logging.info("Adding hop_limit column to message_reception table...")
+                cursor.execute("""
+                    ALTER TABLE message_reception
+                    ADD COLUMN hop_limit INTEGER DEFAULT NULL
+                """)
+                db.commit()
+                logging.info("Added hop_limit column successfully")
+                
+            # Check if hop_start column exists
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM information_schema.COLUMNS 
+                WHERE TABLE_NAME = 'message_reception'
+                AND COLUMN_NAME = 'hop_start'
+            """)
+            has_hop_start = cursor.fetchone()[0] > 0
+            
+            if not has_hop_start:
+                logging.info("Adding hop_start column to message_reception table...")
+                cursor.execute("""
+                    ALTER TABLE message_reception
+                    ADD COLUMN hop_start INTEGER DEFAULT NULL
+                """)
+                db.commit()
+                logging.info("Added hop_start column successfully")
+                
+            # Check if hop_count column exists (handle legacy migration)
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM information_schema.COLUMNS 
+                WHERE TABLE_NAME = 'message_reception'
+                AND COLUMN_NAME = 'hop_count'
+            """)
+            has_hop_count = cursor.fetchone()[0] > 0
+            
+            if has_hop_count:
+                logging.info("Migrating from hop_count to hop_limit/hop_start...")
+                # No need to remove the hop_count column, just leave it for backward compatibility
+                logging.info("Migration complete")
 
     except Exception as e:
         logging.error(f"Error performing migration: {e}")
