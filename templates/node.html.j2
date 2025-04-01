@@ -227,7 +227,7 @@
             <th scope="row" style="background: #F2F6F9; text-align: left;">First Seen</th>
             <td class="text-left">
               {% if node.ts_created %}
-              {{ datetime.fromtimestamp(node["ts_created"]).strftime('%Y-%m-%d %H:%M:%S') }}
+              {{ format_timestamp(node.ts_created) }}
               {% else %}
               Unknown
               {% endif %}
@@ -237,7 +237,7 @@
             <th scope="row" style="background: #F2F6F9; text-align: left;">Last Seen</th>
             <td class="text-left">
               {% if node.ts_seen %}
-              {{ datetime.fromtimestamp(node["ts_seen"]).strftime('%Y-%m-%d %H:%M:%S') }}
+              {{ format_timestamp(node.ts_seen) }} ({{ time_ago(node.ts_seen) }})
               {% else %}
               Unknown
               {% endif %}

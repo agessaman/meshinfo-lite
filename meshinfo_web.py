@@ -21,12 +21,18 @@ from meshinfo_register import Register
 from meshtastic_monday import MeshtasticMonday
 from meshinfo_telemetry_graph import draw_graph
 from meshinfo_los_profile import LOSProfile
+from timezone_utils import convert_to_local, format_timestamp, time_ago
 import json
 import datetime
 import time
 import re
 
 app = Flask(__name__)
+
+# Make timezone utilities available to templates
+app.jinja_env.globals.update(convert_to_local=convert_to_local)
+app.jinja_env.globals.update(format_timestamp=format_timestamp)
+app.jinja_env.globals.update(time_ago=time_ago)
 
 config = configparser.ConfigParser()
 config.read("config.ini")

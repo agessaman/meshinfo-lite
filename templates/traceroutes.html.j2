@@ -19,7 +19,7 @@
     <tbody>
       {% for item in traceroutes %}
         <tr>
-          <td>{{ datetime.fromtimestamp(item.ts_created).strftime("%Y-%m-%d %H:%M:%S") }}</td>
+          <td>{{ format_timestamp(item.ts_created) }}</td>
           <td>
             {% set fnodeid = utils.convert_node_id_from_int_to_hex(item["from_id"]) %}
             {% set tnodeid = utils.convert_node_id_from_int_to_hex(item["to_id"]) %}

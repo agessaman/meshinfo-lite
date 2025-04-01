@@ -121,7 +121,7 @@
       zIndex: 2
     });
 
-    const nodes = {};
+    var nodes = {};
     var neighborLayers = [];
     {% for id, node in nodes.items() %}
       {% if node.position is defined and node.position and node.position.longitude_i and node.position.latitude_i %}
@@ -129,7 +129,7 @@
         id: '{{ id }}',
         short_name: '{{ node.short_name }}',
         long_name: '{{ node.long_name }}',
-        last_seen: '{{ node.last_seen }}',
+        last_seen: '{{ time_ago(node.ts_seen) }}',
         position: [{{ node.position.longitude_i / 10000000 }}, {{ node.position.latitude_i / 10000000 }}],
         online: {% if node.active %}true{% else %}false{% endif %}
       };

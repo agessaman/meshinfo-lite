@@ -41,7 +41,7 @@
       {% endif %}
       <tr>
         <td>{{ message.channel }}</td>
-        <td>{{ datetime.fromtimestamp(message.ts_created).strftime('%H:%M:%S') }}</td>
+        <td>{{ format_timestamp(message.ts_created, '%H:%M:%S') }}</td>
         {% if message["from"] in nodes %}
         <td>
           <a href="node_{{ message['from'] }}.html">{{ nodes[message["from"]].long_name+" (" + nodes[message["from"]].short_name + ")" }}</a><br>

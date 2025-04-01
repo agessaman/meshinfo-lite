@@ -23,7 +23,7 @@
     <table class="table table-striped table-bordered">
       <thead>
         <tr>
-          <th scope="col">Channel</th>
+          <th scope="col">Ch</th>
           <th scope="col">Time</th>
           <th scope="col">From</th>
           <th scope="col" style="word-wrap: break-word;min-width: 50px;">To</th>
@@ -34,7 +34,7 @@
         {% for message in chat %}
         <tr>
           <td style="max-width: 10px;">{{ message.channel }}</td>
-          <td>{{ datetime.fromtimestamp(message['ts_created']).strftime('%Y-%m-%d %H:%M:%S') }}</td>
+          <td>{{ format_timestamp(message['ts_created']) }}</td>
           {% if message["from"] in nodes %}
           <td><a href="node_{{ message['from'] }}.html">{{ nodes[message["from"]].long_name+" (" +
               nodes[message["from"]].short_name + ")" }}</a></td>

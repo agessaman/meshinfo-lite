@@ -9,6 +9,6 @@
   <p>
     This site provides information on <a href="nodes.html"><span class="font-weight-bold">{{ active_nodes|length }}</span> active nodes</a> in the Puget Sound Meshtastic network.
   </p>
-  <p>Last updated: {{ timestamp.strftime('%Y-%m-%d %H:%M:%S %z') }}</p>
+  <p>Last updated: {{ format_timestamp(timestamp.timestamp()) }}</p>
 </div>
 {% endblock %}

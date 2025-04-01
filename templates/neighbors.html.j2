@@ -112,8 +112,8 @@
           {% else %}
           <td></td>
           {% endif %}
-          <td>{{ datetime.fromtimestamp(node["ts_seen"]).strftime("%Y-%m-%d %H:%M:%S") }}</td>
-          <td>{{ node.last_seen }}</td>
+          <td>{{ format_timestamp(node.ts_seen) }}</td>
+          <td>{{ time_ago(node.ts_seen) }}</td>
         </tr>
         {% endfor %}
       </tbody>
