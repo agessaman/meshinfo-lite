@@ -209,7 +209,7 @@ WHERE a.id = %s
 
     def get_traceroutes(self):
         tracerouts = []
-        sql = """SELECT from_id, to_id, route, ts_created
+        sql = """SELECT from_id, to_id, route, snr, ts_created
 FROM traceroute ORDER BY ts_created DESC"""
         cur = self.db.cursor()
         cur.execute(sql)
@@ -221,7 +221,9 @@ FROM traceroute ORDER BY ts_created DESC"""
                     "to_id": row[1],
                     "route":
                         [int(a) for a in row[2].split(";")] if row[2] else [],
-                    "ts_created": row[3].timestamp()
+                    "snr":
+                        [int(s) / 4 for s in row[3].split(";")] if row[3] else [],
+                    "ts_created": row[4].timestamp()
                 }
             )
         cur.close()
@@ -665,15 +667,19 @@ ts_updated = VALUES(ts_updated)"""
         to_id = self.verify_node(data["to"])
         payload = dict(data["decoded"]["json_payload"])
         route = None
+        snr = None
         if "route" in payload:
             route = ";".join(str(r) for r in payload["route"])
+        if "snr_towards" in payload:
+            snr = ";".join(str(s) for s in payload["snr_towards"])
 
         sql = """INSERT INTO traceroute
-(from_id, to_id, route, ts_created) VALUES (%s, %s, %s, NOW())"""
+(from_id, to_id, route, snr, ts_created) VALUES (%s, %s, %s, %s, NOW())"""
         params = (
             from_id,
             to_id,
-            route
+            route,
+            snr
         )
         self.db.cursor().execute(sql, params)
         self.db.commit()
@@ -1007,6 +1013,7 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
     from_id INT UNSIGNED NOT NULL,
     to_id INT UNSIGNED NOT NULL,
     route VARCHAR(255),
+    snr VARCHAR(255),
     ts_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )""",
             """CREATE TABLE IF NOT EXISTS telemetry (
