@@ -130,6 +130,66 @@ def chat():
         debug=False,
     )
 
+@app.route('/message_map.html')
+def message_map():
+    message_id = request.args.get('id')
+    if not message_id:
+        abort(404)
+        
+    md = MeshData()
+    nodes = md.get_nodes()
+    
+    # Get message and reception data
+    cursor = md.db.cursor(dictionary=True)
+    cursor.execute("""
+        SELECT t.*, r.*
+        FROM text t
+        LEFT JOIN message_reception r ON t.message_id = r.message_id
+        WHERE t.message_id = %s
+    """, (message_id,))
+    
+    message_data = cursor.fetchall()
+    if not message_data:
+        abort(404)
+        
+    # Process message data
+    message = {
+        'id': message_id,
+        'from_id': message_data[0]['from_id'],
+        'text': message_data[0]['text'],
+        'ts_created': message_data[0]['ts_created'],
+        'receptions': []
+    }
+    
+    # Only process receptions if they exist
+    for reception in message_data:
+        if reception['received_by_id'] is not None:  # Add this check
+            message['receptions'].append({
+                'node_id': reception['received_by_id'],
+                'rx_snr': reception['rx_snr'],
+                'rx_rssi': reception['rx_rssi'],
+                'hop_start': reception['hop_start'],
+                'hop_limit': reception['hop_limit'],
+                'rx_time': reception['rx_time']
+            })
+    
+    cursor.close()
+
+    # Check if sender has position data before rendering map
+    from_id = utils.convert_node_id_from_int_to_hex(message['from_id'])
+    if from_id not in nodes or not nodes[from_id].get('position'):
+        abort(404, description="Sender position data not available")
+    
+    return render_template(
+        "message_map.html.j2",
+        auth=auth(),
+        config=config,
+        nodes=nodes,
+        message=message,
+        utils=utils,
+        datetime=datetime.datetime,
+        timestamp=datetime.datetime.now()
+    )
 
 @app.route('/graph.html')
 def graph():

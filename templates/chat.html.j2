@@ -48,28 +48,39 @@
           <td>{{ message["to"] if message["to"] != "ffffffff" else "ALL"}}</td>
           {% endif %}
           <td>
-              <div style="word-break: break-word; font-size: 1.1em; font-weight: 500;">{{ message["text"] }}</div>
-              {% if message.receptions %}
-              <div class="mt-2">
+            <div class="d-flex justify-content-between align-items-start">
+              <div class="flex-grow-1">
+                <div style="word-break: break-word; font-size: 1.1em; font-weight: 500;">{{ message["text"] }}</div>
+                {% if message.receptions %}
+                <div class="mt-2">
                   <span class="text-muted">Heard by:</span>
                   {% for reception in message.receptions %}
-                      {% set node_id = utils.convert_node_id_from_int_to_hex(reception.node_id) %}
-                      {% if node_id in nodes %}
-                      <a href="/node_{{ node_id }}.html" class="text-decoration-none d-inline-block mx-1">
-                          <span class="badge" 
-                                style="font-size: 90%; 
-                                      background-color: rgb(191, 228, 233); 
-                                      color: rgb(33, 37, 41);
-                                      padding: 3px 8px;
-                                      display: inline-block;" 
-                                title="SNR: {{ reception.rx_snr }}dB, RSSI: {{ reception.rx_rssi }}dBm{% if reception.hop_start is not none and reception.hop_limit is not none %}, Hops taken: {{ reception.hop_start - reception.hop_limit }} of {{ reception.hop_start }}){% endif %}">
-                              {{ nodes[node_id].short_name }}
-                          </span>
-                      </a>
-                      {% endif %}
+                    {% set node_id = utils.convert_node_id_from_int_to_hex(reception.node_id) %}
+                    {% if node_id in nodes %}
+                    <a href="/node_{{ node_id }}.html" class="text-decoration-none d-inline-block mx-1">
+                      <span class="badge" 
+                            style="font-size: 90%; 
+                                  background-color: rgb(191, 228, 233); 
+                                  color: rgb(33, 37, 41);
+                                  padding: 3px 8px;
+                                  display: inline-block;" 
+                            title="SNR: {{ reception.rx_snr }}dB, RSSI: {{ reception.rx_rssi }}dBm{% if reception.hop_start is not none and reception.hop_limit is not none %}, Hops taken: {{ reception.hop_start - reception.hop_limit }} of {{ reception.hop_start }}){% endif %}">
+                        {{ nodes[node_id].short_name }}
+                      </span>
+                    </a>
+                    {% endif %}
                   {% endfor %}
+                </div>
+                {% endif %}
+              </div>
+              {% if message.from in nodes and nodes[message.from].position and message.receptions %}
+              <div class="ms-3">
+                <a href="/message_map.html?id={{ message.message_id }}" class="btn btn-sm btn-outline-primary" title="View message propagation map">
+                  <i class="bi bi-map"></i> Map
+                </a>
               </div>
               {% endif %}
+            </div>
           </td>
       </tr>
       {% endfor %}
