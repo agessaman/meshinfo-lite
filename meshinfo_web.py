@@ -84,6 +84,7 @@ def nodes():
         auth=auth(),
         config=config,
         nodes=nodes,
+        show_inactive=False,  # Add this line
         latest=latest,
         hardware=meshtastic_support.HardwareModel,
         meshtastic_support=meshtastic_support,
@@ -92,14 +93,13 @@ def nodes():
         timestamp=datetime.datetime.now(),
     )
 
-
 @app.route('/allnodes.html')
 def allnodes():
     md = MeshData()
     nodes = md.get_nodes()
     latest = md.get_latest_node()
     return render_template(
-        "allnodes.html.j2",
+        "nodes.html.j2",  # Change to use nodes.html.j2
         auth=auth(),
         config=config,
         nodes=nodes,
