@@ -1,0 +1,108 @@
+/* Original Style */
+
+body {
+    font-family: monospace;
+    font-size: 12px;
+}
+
+th {
+    background-color: #D7F9FF;
+    text-align: center;
+}
+
+nav {
+    background-color: #9fdef9;
+}
+
+.table-striped>tbody>tr:nth-child(2n+1)>td,
+.table-striped>tbody>tr:nth-child(2n+1)>th {
+    background-color: #f0f0f0;
+}
+
+/* Main table striping */
+.table-striped>tbody>tr:nth-of-type(odd) {
+    background-color: #f0f0f0 !important;
+}
+
+/* Make inner tables completely transparent */
+.neighbor-table {
+    border-style: hidden !important;
+    background: transparent !important;
+}
+
+.neighbor-table tr {
+    background: transparent !important;
+    border-style: hidden !important;
+}
+
+.neighbor-table td {
+    border-style: hidden !important;
+    padding-right: 8px;
+    background: transparent !important;
+}
+
+/* Badge styling */
+.badge.bg-good-snr {
+    background-color: #2d8659;
+    /* Dark green */
+    color: white;
+}
+
+.badge.bg-neighbor {
+    background-color: #2b5797;
+    /* Dark blue */
+    color: white;
+}
+
+.badge.bg-message {
+    background-color: #505050;
+    /* Dark gray */
+    color: white;
+}
+
+/* Layout classes */
+.neighbor-table td.node-id {
+    min-width: 85px;
+    /* Increased from 60px to accommodate 4 letters + badge */
+    white-space: nowrap;
+    /* Prevent wrapping */
+    padding-right: 8px;
+}
+
+.neighbor-table td.snr-value,
+.neighbor-table td.distance,
+.neighbor-table td.message-count {
+    white-space: nowrap;
+}
+
+.neighbor-table td.node-id .badge {
+    margin-right: 4px;
+    /* Add consistent spacing between badge and name */
+    display: inline-block;
+    /* Ensure badge and text stay together */
+}
+
+/* SNR badge styling */
+.badge.snr-good {
+    background-color: #C8E6C9;
+    /* Muted light green */
+    color: black;
+}
+
+.badge.snr-adequate {
+    background-color: #FFF9C4;
+    /* Muted light yellow */
+    color: black;
+}
+
+.badge.snr-poor {
+    background-color: #FFE0B2;
+    /* Muted light orange */
+    color: black;
+}
+
+.badge.snr-very-poor {
+    background-color: #FFCCBC;
+    /* Muted light red-orange */
+    color: black;
+}

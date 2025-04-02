@@ -165,24 +165,187 @@ def map():
 
 @app.route('/neighbors.html')
 def neighbors():
+    view_type = request.args.get('view', 'neighbor_info')
     md = MeshData()
     nodes = md.get_nodes()
-    active_nodes_with_neighbors = {
-        node_id: dict(node)
-        for node_id, node in nodes.items()
-        if node.get("active") and node.get("neighbors")
-    }
+    
+    zero_hop_timeout = int(config.get("server", "zero_hop_timeout", fallback=43200))
+    cutoff_time = int(time.time()) - zero_hop_timeout
+    
+    active_nodes_with_connections = {}
+    
+    if view_type in ['neighbor_info', 'merged']:
+        neighbor_info_nodes = {}
+        for node_id, node in nodes.items():
+            if node.get("active") and node.get("neighbors"):
+                node_data = dict(node)
+                if 'last_heard' not in node_data:
+                    node_data['last_heard'] = datetime.datetime.now()
+                elif isinstance(node_data['last_heard'], (int, float)):
+                    node_data['last_heard'] = datetime.datetime.fromtimestamp(node_data['last_heard'])
+                
+                # Add heard-by data from neighbor info
+                node_data['heard_by_neighbors'] = []
+                for other_id, other_node in nodes.items():
+                    if other_node.get("neighbors"):
+                        for neighbor in other_node["neighbors"]:
+                            if utils.convert_node_id_from_int_to_hex(neighbor["neighbor_id"]) == node_id:
+                                node_data['heard_by_neighbors'].append({
+                                    'neighbor_id': utils.convert_node_id_from_hex_to_int(other_id),
+                                    'snr': neighbor["snr"],
+                                    'distance': neighbor.get("distance")
+                                })
+                
+                neighbor_info_nodes[node_id] = node_data
+                
+        if view_type == 'neighbor_info':
+            active_nodes_with_connections = neighbor_info_nodes
+    
+    if view_type in ['zero_hop', 'merged']:
+        cursor = md.db.cursor(dictionary=True)
+        
+        # First get nodes that have heard messages
+        cursor.execute("""
+            SELECT DISTINCT 
+                received_by_id as node_id,
+                MAX(rx_time) as last_heard
+            FROM message_reception
+            WHERE rx_time > %s
+            AND (
+                (hop_limit IS NULL AND hop_start IS NULL)
+                OR
+                (hop_start - hop_limit = 0)
+            )
+            GROUP BY received_by_id
+        """, (cutoff_time,))
+        
+        zero_hop_nodes = {}
+        for row in cursor.fetchall():
+            node_id = utils.convert_node_id_from_int_to_hex(row['node_id'])
+            if node_id in nodes and nodes[node_id].get("active"):
+                node_data = dict(nodes[node_id])
+                node_data['zero_hop_neighbors'] = []
+                node_data['heard_by_zero_hop'] = []
+                node_data['last_heard'] = datetime.datetime.fromtimestamp(row['last_heard'])
+                
+                # Get nodes this node heard
+                cursor.execute("""
+                    SELECT 
+                        from_id as neighbor_id,
+                        MAX(rx_snr) as snr,
+                        COUNT(*) as message_count,
+                        MAX(rx_time) as last_heard,
+                        p1.latitude_i as lat1_i,
+                        p1.longitude_i as lon1_i,
+                        p2.latitude_i as lat2_i,
+                        p2.longitude_i as lon2_i
+                    FROM message_reception m
+                    LEFT OUTER JOIN position p1 ON p1.id = m.received_by_id
+                    LEFT OUTER JOIN position p2 ON p2.id = m.from_id
+                    WHERE m.received_by_id = %s
+                    AND m.rx_time > %s
+                    AND (
+                        (m.hop_limit IS NULL AND m.hop_start IS NULL)
+                        OR
+                        (m.hop_start - m.hop_limit = 0)
+                    )
+                    GROUP BY from_id, p1.latitude_i, p1.longitude_i, p2.latitude_i, p2.longitude_i
+                """, (row['node_id'], cutoff_time))
+                
+                # Process nodes this node heard
+                for neighbor in cursor.fetchall():
+                    distance = None
+                    if (neighbor['lat1_i'] and neighbor['lon1_i'] and 
+                        neighbor['lat2_i'] and neighbor['lon2_i']):
+                        distance = round(utils.distance_between_two_points(
+                            neighbor['lat1_i'] / 10000000,
+                            neighbor['lon1_i'] / 10000000,
+                            neighbor['lat2_i'] / 10000000,
+                            neighbor['lon2_i'] / 10000000
+                        ), 2)
+                    
+                    node_data['zero_hop_neighbors'].append({
+                        'neighbor_id': neighbor['neighbor_id'],
+                        'snr': neighbor['snr'],
+                        'message_count': neighbor['message_count'],
+                        'distance': distance,
+                        'last_heard': datetime.datetime.fromtimestamp(neighbor['last_heard'])
+                    })
+                
+                # Get nodes that heard this node
+                cursor.execute("""
+                    SELECT 
+                        received_by_id as neighbor_id,
+                        MAX(rx_snr) as snr,
+                        COUNT(*) as message_count,
+                        MAX(rx_time) as last_heard,
+                        p1.latitude_i as lat1_i,
+                        p1.longitude_i as lon1_i,
+                        p2.latitude_i as lat2_i,
+                        p2.longitude_i as lon2_i
+                    FROM message_reception m
+                    LEFT OUTER JOIN position p1 ON p1.id = m.received_by_id
+                    LEFT OUTER JOIN position p2 ON p2.id = m.from_id
+                    WHERE m.from_id = %s
+                    AND m.rx_time > %s
+                    AND (
+                        (m.hop_limit IS NULL AND m.hop_start IS NULL)
+                        OR
+                        (m.hop_start - m.hop_limit = 0)
+                    )
+                    GROUP BY received_by_id, p1.latitude_i, p1.longitude_i, p2.latitude_i, p2.longitude_i
+                """, (row['node_id'], cutoff_time))
+                
+                # Process nodes that heard this node
+                for neighbor in cursor.fetchall():
+                    distance = None
+                    if (neighbor['lat1_i'] and neighbor['lon1_i'] and 
+                        neighbor['lat2_i'] and neighbor['lon2_i']):
+                        distance = round(utils.distance_between_two_points(
+                            neighbor['lat1_i'] / 10000000,
+                            neighbor['lon1_i'] / 10000000,
+                            neighbor['lat2_i'] / 10000000,
+                            neighbor['lon2_i'] / 10000000
+                        ), 2)
+                    
+                    node_data['heard_by_zero_hop'].append({
+                        'neighbor_id': neighbor['neighbor_id'],
+                        'snr': neighbor['snr'],
+                        'message_count': neighbor['message_count'],
+                        'distance': distance,
+                        'last_heard': datetime.datetime.fromtimestamp(neighbor['last_heard'])
+                    })
+                
+                if node_data['zero_hop_neighbors'] or node_data['heard_by_zero_hop']:
+                    zero_hop_nodes[node_id] = node_data
+        
+        if view_type == 'zero_hop':
+            active_nodes_with_connections = zero_hop_nodes
+        else:  # merged view
+            active_nodes_with_connections = neighbor_info_nodes.copy()
+            for node_id, node_data in zero_hop_nodes.items():
+                if node_id in active_nodes_with_connections:
+                    active_nodes_with_connections[node_id]['zero_hop_neighbors'] = node_data['zero_hop_neighbors']
+                    active_nodes_with_connections[node_id]['heard_by_zero_hop'] = node_data['heard_by_zero_hop']
+                    if (node_data['last_heard'] > 
+                        active_nodes_with_connections[node_id]['last_heard']):
+                        active_nodes_with_connections[node_id]['last_heard'] = node_data['last_heard']
+                else:
+                    active_nodes_with_connections[node_id] = node_data
+        
+        cursor.close()
+
     return render_template(
         "neighbors.html.j2",
         auth=auth(),
         config=config,
         nodes=nodes,
-        active_nodes_with_neighbors=active_nodes_with_neighbors,
+        active_nodes_with_connections=active_nodes_with_connections,
+        view_type=view_type,
         utils=utils,
         datetime=datetime.datetime,
         timestamp=datetime.datetime.now(),
     )
-
 
 @app.route('/telemetry.html')
 def telemetry():

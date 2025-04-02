@@ -3,16 +3,6 @@
 
 {% block title %}Traceroutes | MeshInfo{% endblock %}
 
-{% block head %}
-{{ super() }}
-<style>
-  .badge.bg-good-snr {
-    background-color: #2d8659;  /* A darker green that provides better contrast */
-    color: white;
-  }
-</style>
-{% endblock %}
-
 {% block content %}
 <div class="container pt-3">
   <h5>{{ this_page.title() }}</h5>
@@ -77,10 +67,7 @@
                     {% endif %}
                     {% if item.snr and loop.index0 < item.snr|length %}
                       {% set snr_value = item.snr[loop.index0] %}
-                      <span class="badge {% if snr_value >= 0 %}bg-good-snr{% else %}bg-warning{% endif %} ms-1"
-                            title="Signal-to-Noise Ratio">
-                        {{ "%.1f"|format(snr_value) }}dB
-                      </span>
+                      {{ snr_badge(snr_value) }}
                     {% endif %}
                   </div>
                   {% if not loop.last %}
@@ -115,7 +102,6 @@
   {% if pagination.total > pagination.per_page %}
     <nav aria-label="Traceroute pagination" class="table-responsive">
       <ul class="pagination justify-content-center mb-1">
-        {# Left controls #}
         <li class="page-item {% if pagination.page == 1 %}disabled{% endif %}">
           <a class="page-link" href="{{ url_for('traceroutes', page=1) }}" title="Newest traceroutes">Current</a>
         </li>
@@ -123,7 +109,6 @@
           <a class="page-link" href="{{ url_for('traceroutes', page=pagination.prev_num) }}" title="Previous page">Previous</a>
         </li>
 
-        {# Page numbers #}
         {% set start_page = [pagination.page - 5, 1] | max %}
         {% set end_page = [start_page + 10, pagination.pages] | min %}
         {% if end_page - start_page < 10 %}
@@ -136,7 +121,6 @@
           </li>
         {% endfor %}
 
-        {# Right controls #}
         <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
           <a class="page-link" href="{{ url_for('traceroutes', page=pagination.next_num) }}" title="Next page">Next</a>
         </li>

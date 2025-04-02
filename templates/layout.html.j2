@@ -1,32 +1,26 @@
 <!DOCTYPE html>
 <html lang="en">
 
+{% macro snr_badge(snr) %}
+  {% if snr > 0 %}
+    <span class="badge snr-good">SNR: {{ "%.1f"|format(snr) }}</span>
+  {% elif snr >= -7 %}
+    <span class="badge snr-adequate">SNR: {{ "%.1f"|format(snr) }}</span>
+  {% elif snr >= -12 %}
+    <span class="badge snr-poor">SNR: {{ "%.1f"|format(snr) }}</span>
+  {% else %}
+    <span class="badge snr-very-poor">SNR: {{ "%.1f"|format(snr) }}</span>
+  {% endif %}
+{% endmacro %}
+
 <head>
   <title>{% block title %}{% endblock %}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta charset="utf-8">
   <link rel="icon" type="image/x-icon" href="/images/icons/favicon.ico">
   <link href="/css/bootstrap.min.css" rel="stylesheet">
-  <style>
-    body {
-      font-family: monospace;
-      font-size: 12px;
-    }
+  <link href="/css/meshinfo.css" rel="stylesheet">
 
-    th {
-      background-color: #D7F9FF;
-      text-align: center;
-    }
-
-    nav {
-      background-color: #9fdef9;
-    }
-
-    .table-striped>tbody>tr:nth-child(2n+1)>td,
-    .table-striped>tbody>tr:nth-child(2n+1)>th {
-      background-color: #F9F9D7;
-    }
-  </style>
   {% block head %}{% endblock %}
 </head>
 
