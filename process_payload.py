@@ -80,74 +80,93 @@ def to_json(msg):
 
 
 def get_data(msg):
-    j = to_json(msg)
-    if "decoded" not in j:
-        return None
-    
-    # Add hop information to the JSON data
-    if hasattr(msg, 'hop_limit'):
-        j["hop_limit"] = msg.hop_limit
-    if hasattr(msg, 'hop_start'):
-        j["hop_start"] = msg.hop_start
-    
-    portnum = j["decoded"]["portnum"]
-    if portnum == portnums_pb2.NODEINFO_APP:
-        j["type"] = "nodeinfo"
-        j["decoded"]["json_payload"] = to_json(
-            mesh_pb2.User().FromString(msg.decoded.payload)
-        )
-    elif portnum == portnums_pb2.MAP_REPORT_APP:
-        j["type"] = "mapreport"
-        j["decoded"]["json_payload"] = to_json(
-            mqtt_pb2.MapReport().FromString(msg.decoded.payload)
-        )
-    elif portnum == portnums_pb2.TEXT_MESSAGE_APP:
-        j["type"] = "text"
-        j["decoded"]["json_payload"] = {
-            "text": msg.decoded.payload
-        }
-    elif portnum == portnums_pb2.NEIGHBORINFO_APP:
-        j["type"] = "neighborinfo"
-        j["decoded"]["json_payload"] = to_json(
-            mesh_pb2.NeighborInfo().FromString(msg.decoded.payload)
-        )
-    elif portnum == portnums_pb2.ROUTING_APP:
-        j["type"] = "routing"
-        j["decoded"]["json_payload"] = to_json(
-            mesh_pb2.Routing().FromString(msg.decoded.payload)
-        )
-    elif portnum == portnums_pb2.TRACEROUTE_APP:
-        j["type"] = "traceroute"
-        j["decoded"]["json_payload"] = to_json(
-            mesh_pb2.RouteDiscovery().FromString(msg.decoded.payload)
-        )
-    elif portnum == portnums_pb2.POSITION_APP:
-        j["type"] = "position"
-        j["decoded"]["json_payload"] = to_json(
-            mesh_pb2.Position().FromString(msg.decoded.payload)
-        )
-    elif portnum == portnums_pb2.TELEMETRY_APP:
-        j["type"] = "telemetry"
-        j["decoded"]["json_payload"] = to_json(
-            telemetry_pb2.Telemetry().FromString(msg.decoded.payload)
-        )
-    if "type" in j:
-        msg_type = j["type"]
-        msg_from = j["from"]
+    try:
+        j = to_json(msg)
+        if "decoded" not in j:
+            logging.debug("Message has no decoded payload")
+            return None
         
-        # Log hop information if it's a text message with hop data
-        if msg_type == "text" and j.get("hop_limit") is not None and j.get("hop_start") is not None:
-            hop_count = j["hop_start"] - j["hop_limit"]
-            logging.info(f"Received {msg_type} from {msg_from} with {hop_count} hops ({j['hop_limit']}/{j['hop_start']})")
-        else:
-            logging.info(f"Received {msg_type} from {msg_from}")
+        # Add hop information to the JSON data
+        if hasattr(msg, 'hop_limit'):
+            j["hop_limit"] = msg.hop_limit
+        if hasattr(msg, 'hop_start'):
+            j["hop_start"] = msg.hop_start
+        
+        portnum = j["decoded"]["portnum"]
+        
+        # Initialize type before the portnum checks
+        j["type"] = None
+        
+        if portnum == portnums_pb2.NODEINFO_APP:
+            j["type"] = "nodeinfo"
+            j["decoded"]["json_payload"] = to_json(
+                mesh_pb2.User().FromString(msg.decoded.payload)
+            )
+        elif portnum == portnums_pb2.MAP_REPORT_APP:
+            j["type"] = "mapreport"
+            j["decoded"]["json_payload"] = to_json(
+                mqtt_pb2.MapReport().FromString(msg.decoded.payload)
+            )
+        elif portnum == portnums_pb2.TEXT_MESSAGE_APP:
+            j["type"] = "text"
+            j["decoded"]["json_payload"] = {
+                "text": msg.decoded.payload
+            }
+        elif portnum == portnums_pb2.NEIGHBORINFO_APP:
+            j["type"] = "neighborinfo"
+            j["decoded"]["json_payload"] = to_json(
+                mesh_pb2.NeighborInfo().FromString(msg.decoded.payload)
+            )
+        elif portnum == portnums_pb2.ROUTING_APP:
+            j["type"] = "routing"
+            j["decoded"]["json_payload"] = to_json(
+                mesh_pb2.Routing().FromString(msg.decoded.payload)
+            )
+        elif portnum == portnums_pb2.TRACEROUTE_APP:
+            j["type"] = "traceroute"
+            j["decoded"]["json_payload"] = to_json(
+                mesh_pb2.RouteDiscovery().FromString(msg.decoded.payload)
+            )
+        elif portnum == portnums_pb2.POSITION_APP:
+            j["type"] = "position"
+            j["decoded"]["json_payload"] = to_json(
+                mesh_pb2.Position().FromString(msg.decoded.payload)
+            )
+        elif portnum == portnums_pb2.TELEMETRY_APP:
+            j["type"] = "telemetry"
+            j["decoded"]["json_payload"] = to_json(
+                telemetry_pb2.Telemetry().FromString(msg.decoded.payload)
+            )
+        
+        if j["type"]:  # Only log if we successfully determined the type
+            msg_type = j["type"]
+            msg_from = j["from"]
             
-    return j
+            if msg_type == "text" and j.get("hop_limit") is not None and j.get("hop_start") is not None:
+                hop_count = j["hop_start"] - j["hop_limit"]
+                logging.info(f"Received {msg_type} from {msg_from} with {hop_count} hops ({j['hop_limit']}/{j['hop_start']})")
+            else:
+                logging.info(f"Received {msg_type} from {msg_from}")
+        else:
+            logging.warning(f"Received message with unknown portnum: {portnum}")
+            
+        return j
+    except Exception as e:
+        logging.error(f"Error processing message data: {str(e)}")
+        return None
 
 
 def process_payload(payload, topic):
     md = MeshData()
     mp = get_packet(payload)
     if mp:
-        data = get_data(mp)
-        md.store(data, topic)
+        try:
+            data = get_data(mp)
+            if data:  # Only store if we got valid data
+                md.store(data, topic)
+            else:
+                logging.warning(f"Received invalid or unsupported message type on topic {topic}")
+        except KeyError as e:
+            logging.warning(f"Failed to process message: Missing key {str(e)} in payload on topic {topic}")
+        except Exception as e:
+            logging.error(f"Unexpected error processing message: {str(e)}")
