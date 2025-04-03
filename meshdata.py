@@ -215,7 +215,7 @@ WHERE a.id = %s
         total = cur.fetchone()[0]
         
         # Get paginated results
-        sql = """SELECT from_id, to_id, route, 
+        sql = """SELECT traceroute_id, from_id, to_id, route, 
             COALESCE(snr, '') as snr,  
             ts_created
         FROM traceroute 
@@ -229,15 +229,15 @@ WHERE a.id = %s
         traceroutes = []
         for row in rows:
             traceroutes.append({
-                "from_id": row[0],
-                "to_id": row[1],
-                "route": [int(a) for a in row[2].split(";")] if row[2] else [],
-                "snr": [float(s) / 4 for s in row[3].split(";")] if row[3] else [],
-                "ts_created": row[4].timestamp()
+                "id": row[0],  # We keep using 'id' in the returned dict for compatibility
+                "from_id": row[1],
+                "to_id": row[2],
+                "route": [int(a) for a in row[3].split(";")] if row[3] else [],
+                "snr": [float(s) / 4 for s in row[4].split(";")] if row[4] else [],
+                "ts_created": row[5].timestamp()
             })
         cur.close()
         
-        # Return dict with pagination info
         return {
             "items": traceroutes,
             "page": page,
@@ -1116,8 +1116,10 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
         try:
             import migrations.add_message_reception as add_message_reception
             import migrations.add_traceroute_snr as add_traceroute_snr
+            import migrations.add_traceroute_id as add_traceroute_id  # Add this line
             add_message_reception.migrate(self.db)
             add_traceroute_snr.migrate(self.db)
+            add_traceroute_id.migrate(self.db)  # Add this line
         except ImportError as e:
             logging.error(f"Failed to import migration module: {e}")
             pass

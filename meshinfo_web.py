@@ -191,6 +191,59 @@ def message_map():
         timestamp=datetime.datetime.now()
     )
 
+@app.route('/traceroute_map.html')
+def traceroute_map():
+    traceroute_id = request.args.get('id')
+    if not traceroute_id:
+        abort(404)
+        
+    md = MeshData()
+    nodes = md.get_nodes()
+    
+    # Get traceroute data
+    cursor = md.db.cursor(dictionary=True)
+    cursor.execute("""
+        SELECT * FROM traceroute WHERE traceroute_id = %s
+    """, (traceroute_id,))
+    
+    traceroute_data = cursor.fetchone()
+    if not traceroute_data:
+        abort(404)
+    
+    # Format the route data for easy use in the template
+    route = []
+    if traceroute_data['route']:
+        route = [int(hop) for hop in traceroute_data['route'].split(';')]
+    
+    snr_values = []
+    if traceroute_data['snr']:
+        snr_values = [float(s)/4 for s in traceroute_data['snr'].split(';')]
+    
+    # Create a clean traceroute object for the template
+    traceroute = {
+        'id': traceroute_data['traceroute_id'],
+        'from_id': traceroute_data['from_id'],
+        'from_id_hex': utils.convert_node_id_from_int_to_hex(traceroute_data['from_id']),
+        'to_id': traceroute_data['to_id'],
+        'to_id_hex': utils.convert_node_id_from_int_to_hex(traceroute_data['to_id']),
+        'ts_created': traceroute_data['ts_created'],
+        'route': route,  # Now this is a list of integers
+        'snr': snr_values  # Now this is a list of floats
+    }
+    
+    cursor.close()
+    
+    return render_template(
+        "traceroute_map.html.j2",
+        auth=auth(),
+        config=config,
+        nodes=nodes,
+        traceroute=traceroute,
+        utils=utils,
+        datetime=datetime.datetime,
+        timestamp=datetime.datetime.now()
+    )
+
 @app.route('/graph.html')
 def graph():
     md = MeshData()
@@ -428,14 +481,14 @@ def telemetry():
 def traceroutes():
     md = MeshData()
     page = request.args.get('page', 1, type=int)
-    per_page = 100  # Changed to 100 items per page
+    per_page = 100
     
     nodes = md.get_nodes()
     traceroute_data = md.get_traceroutes(page=page, per_page=per_page)
     
     # Calculate pagination info
     total = traceroute_data['total']
-    start_item = (page - 1) * per_page + 1 if total > 0 else 0  # Handle empty case
+    start_item = (page - 1) * per_page + 1 if total > 0 else 0
     end_item = min(page * per_page, total)
     
     # Create pagination info
@@ -444,7 +497,7 @@ def traceroutes():
         'per_page': per_page,
         'total': total,
         'items': traceroute_data['items'],
-        'pages': (total + per_page - 1) // per_page,  # Ceiling division
+        'pages': (total + per_page - 1) // per_page,
         'has_prev': page > 1,
         'has_next': page * per_page < total,
         'prev_num': page - 1,
@@ -458,8 +511,8 @@ def traceroutes():
         auth=auth(),
         config=config,
         nodes=nodes,
-        traceroutes=traceroute_data['items'],  # Just pass the items
-        pagination=pagination,  # Pass pagination info separately
+        traceroutes=traceroute_data['items'],
+        pagination=pagination,
         utils=utils,
         datetime=datetime.datetime,
         timestamp=datetime.datetime.now(),

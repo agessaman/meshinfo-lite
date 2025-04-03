@@ -15,6 +15,7 @@
         <th scope="col">To</th>
         <th scope="col">Route</th>
         <th scope="col">Route Hops</th>
+        <th scope="col">Actions</th>  <!-- New column -->
       </tr>
     </thead>
     <tbody>
@@ -93,11 +94,21 @@
               </div>
             </div>
           </td>
-          <td>{{ item.route | length }}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+        <td>{{ item.route | length }}</td>
+        <td>
+          {% set from_id_hex = utils.convert_node_id_from_int_to_hex(item["from_id"]) %}
+          {% set to_id_hex = utils.convert_node_id_from_int_to_hex(item["to_id"]) %}
+          {% if from_id_hex in nodes and to_id_hex in nodes and
+                nodes[from_id_hex].position and nodes[to_id_hex].position %}
+            <a href="/traceroute_map.html?id={{ item.id }}" class="btn btn-sm btn-outline-primary" title="View traceroute map">
+              <i class="bi bi-map"></i> Map
+            </a>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
 
   {% if pagination.total > pagination.per_page %}
     <nav aria-label="Traceroute pagination" class="table-responsive">
