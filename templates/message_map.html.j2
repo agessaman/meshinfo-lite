@@ -18,7 +18,7 @@
       <p class="card-text">
         <strong>From:</strong> 
         {% set from_id = utils.convert_node_id_from_int_to_hex(message.from_id) %}
-        {% if from_id in nodes %}
+        {% if from_id in nodes and nodes[from_id].position and nodes[from_id].position.longitude_i is not none and nodes[from_id].position.latitude_i is not none %}
           <a href="node_{{ from_id }}.html">{{ nodes[from_id].long_name }} ({{ nodes[from_id].short_name }})</a>
         {% else %}
           Unknown
@@ -97,7 +97,7 @@
   
   // Add sender
   {% set from_id = utils.convert_node_id_from_int_to_hex(message.from_id) %}
-  {% if from_id in nodes and nodes[from_id].position %}
+  {% if from_id in nodes and nodes[from_id].position and nodes[from_id].position.longitude_i is not none and nodes[from_id].position.latitude_i is not none %}
     var sender = new ol.Feature({
         geometry: new ol.geom.Point(ol.proj.fromLonLat([
             {{ nodes[from_id].position.longitude_i / 10000000 }},
@@ -118,7 +118,7 @@
     // Add receivers and lines
     {% for reception in message.receptions %}
       {% set rid = utils.convert_node_id_from_int_to_hex(reception.node_id) %}
-      {% if rid in nodes and nodes[rid].position %}
+      {% if rid in nodes and nodes[rid].position and nodes[rid].position.longitude_i is not none and nodes[rid].position.latitude_i is not none %}
         var receiver = new ol.Feature({
             geometry: new ol.geom.Point(ol.proj.fromLonLat([
                 {{ nodes[rid].position.longitude_i / 10000000 }},
