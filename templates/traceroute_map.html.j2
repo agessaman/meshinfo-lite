@@ -65,8 +65,7 @@
                     <span>UNK</span>
                   {% endif %}
                   {% if traceroute.snr_towards and loop.index0 < traceroute.snr_towards|length %}
-                    {% set snr_value = traceroute.snr_towards[loop.index0] %}
-                    {{ snr_badge(snr_value) }}
+                    {{ snr_badge(traceroute.snr_towards[loop.index0]) }}
                   {% endif %}
                 </div>
                 {% if not loop.last %}
@@ -76,12 +75,10 @@
             {% endfor %}
           {% endif %}
 
-        {% if traceroute.route_back %}
-          {# Destination node #}
+          {# Destination node for forward path #}
           <div class="d-inline-flex align-items-center me-2 mb-1">
             <div class="position-relative">
               {% if traceroute.to_id_hex in nodes %}
-                <span class="mx-2">⇢</span>
                 <a href="node_{{ traceroute.to_id_hex }}.html" class="text-decoration-none fw-bold">
                   {{ nodes[traceroute.to_id_hex].short_name }}
                 </a>
@@ -91,12 +88,11 @@
             </div>
           </div>
         </div>
-        {% endif %}
 
         {% if traceroute.route_back %}
           <strong>Return Route:</strong>
           <div class="d-flex align-items-center flex-wrap mt-2">
-            {# Destination node (start of return path) #}
+            {# Source node for return path #}
             <div class="d-inline-flex align-items-center me-2 mb-1">
               <div class="position-relative">
                 {% if traceroute.to_id_hex in nodes %}
@@ -110,7 +106,9 @@
                   <span class="fw-bold">UNK</span>
                 {% endif %}
               </div>
-              <span class="mx-2">⇢</span>
+              {% if traceroute.route_back|length > 0 %}
+                <span class="mx-2">⇢</span>
+              {% endif %}
             </div>
 
             {# Return hop nodes #}
@@ -128,8 +126,7 @@
                       <span>UNK</span>
                     {% endif %}
                     {% if traceroute.snr_back and loop.index0 < traceroute.snr_back|length %}
-                      {% set snr_value = traceroute.snr_back[loop.index0] %}
-                      {{ snr_badge(snr_value) }}
+                      {{ snr_badge(traceroute.snr_back[loop.index0]) }}
                     {% endif %}
                   </div>
                   {% if not loop.last %}
@@ -139,7 +136,7 @@
               {% endfor %}
             {% endif %}
 
-            {# Source node (end of return path) #}
+            {# Final destination (original source) for return path #}
             <div class="d-inline-flex align-items-center me-2 mb-1">
               <div class="position-relative">
                 {% if traceroute.from_id_hex in nodes %}
@@ -628,7 +625,15 @@ for (var i = 0; i < allpoints.length - 1; i++) {
     
     // Style the line based on path type
     if (isDirectConnection) {
-        line.setStyle(isForwardPath ? forwardLineStyle : returnDashedLineStyle);
+        if (isForwardPath) {
+            line.setStyle(forwardLineStyle);
+        } else {
+            {% if traceroute.route_back %}
+                line.setStyle(returnLineStyle);
+            {% else %}
+                line.setStyle(returnDashedLineStyle);
+            {% endif %}
+        }
     } else {
         var isLastForwardHop = i === {{ traceroute.route|length }};
         var isLastReturnHop = i === allpoints.length - 2;
