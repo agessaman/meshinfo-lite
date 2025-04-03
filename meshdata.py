@@ -271,21 +271,19 @@ WHERE a.id = %s
         active_threshold = int(
             self.config["server"]["node_activity_prune_threshold"]
         )
-        all_sql = """SELECT n.*, u.username owner_username
-FROM nodeinfo n LEFT OUTER JOIN meshuser u ON n.owner = u.email"""
-        active_sql = """
-SELECT n.*, u.username owner_username FROM
-nodeinfo n LEFT OUTER JOIN meshuser u ON n.owner = u.email
-WHERE n.ts_seen > FROM_UNIXTIME(%s)"""
+        # Modified to include all nodes but still mark active status
+        all_sql = """SELECT n.*, u.username owner_username,
+            CASE WHEN n.ts_seen > FROM_UNIXTIME(%s) THEN 1 ELSE 0 END as is_active
+        FROM nodeinfo n 
+        LEFT OUTER JOIN meshuser u ON n.owner = u.email"""
+        
         cur = self.db.cursor()
-        if not active:
-            cur.execute(all_sql)
-        else:
-            timeout = time.time() - active_threshold
-            params = (timeout, )
-            cur.execute(active_sql, params)
+        timeout = time.time() - active_threshold
+        params = (timeout, )
+        cur.execute(all_sql, params)
         rows = cur.fetchall()
         column_names = [desc[0] for desc in cur.description]
+        
         for row in rows:
             record = {}
             for i in range(len(row)):
@@ -293,7 +291,9 @@ WHERE n.ts_seen > FROM_UNIXTIME(%s)"""
                     record[column_names[i]] = row[i].timestamp()
                 else:
                     record[column_names[i]] = row[i]
-            is_active = record["ts_seen"] > (time.time() - active_threshold)
+            
+            # Use the is_active field from the query
+            is_active = bool(record.get("is_active", 0))
             record["telemetry"] = self.get_telemetry(row[0])
             record["neighbors"] = self.get_neighbors(row[0])
             record["position"] = self.get_position(row[0])
@@ -313,6 +313,7 @@ WHERE n.ts_seen > FROM_UNIXTIME(%s)"""
             record["last_seen"] = utils.time_since(record["ts_seen"])
             node_id = utils.convert_node_id_from_int_to_hex(row[0])
             nodes[node_id] = record
+        
         cur.close()
         return nodes
 

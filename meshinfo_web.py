@@ -279,11 +279,75 @@ def graph():
 def map():
     md = MeshData()
     nodes = md.get_nodes()
+    
+    # Get timeout from config
+    zero_hop_timeout = int(config.get("server", "zero_hop_timeout", fallback=43200))
+    cutoff_time = int(time.time()) - zero_hop_timeout
+    
+    # Get zero-hop data for all nodes
+    cursor = md.db.cursor(dictionary=True)
+    zero_hop_data = {}
+    
+    # Query for all zero-hop messages
+    cursor.execute("""
+        SELECT 
+            r.from_id,
+            r.received_by_id,
+            COUNT(*) AS count,
+            MAX(r.rx_snr) AS best_snr,
+            AVG(r.rx_snr) AS avg_snr,
+            MAX(r.rx_time) AS last_rx_time
+        FROM 
+            message_reception r
+        WHERE
+            (
+                (r.hop_limit IS NULL AND r.hop_start IS NULL)
+                OR
+                (r.hop_start - r.hop_limit = 0)
+            )
+            AND r.rx_time > %s
+        GROUP BY 
+            r.from_id, r.received_by_id
+        ORDER BY
+            last_rx_time DESC
+    """, (cutoff_time,))
+    
+    for row in cursor.fetchall():
+        from_id = utils.convert_node_id_from_int_to_hex(row['from_id'])
+        received_by_id = utils.convert_node_id_from_int_to_hex(row['received_by_id'])
+        
+        if from_id not in zero_hop_data:
+            zero_hop_data[from_id] = {'heard': [], 'heard_by': []}
+        if received_by_id not in zero_hop_data:
+            zero_hop_data[received_by_id] = {'heard': [], 'heard_by': []}
+            
+        # Add to heard_by list of sender
+        zero_hop_data[from_id]['heard_by'].append({
+            'node_id': received_by_id,
+            'count': row['count'],
+            'best_snr': row['best_snr'],
+            'avg_snr': row['avg_snr'],
+            'last_rx_time': row['last_rx_time']
+        })
+        
+        # Add to heard list of receiver
+        zero_hop_data[received_by_id]['heard'].append({
+            'node_id': from_id,
+            'count': row['count'],
+            'best_snr': row['best_snr'],
+            'avg_snr': row['avg_snr'],
+            'last_rx_time': row['last_rx_time']
+        })
+    
+    cursor.close()
+    
     return render_template(
         "map.html.j2",
         auth=auth(),
         config=config,
         nodes=nodes,
+        zero_hop_data=zero_hop_data,
+        zero_hop_timeout=zero_hop_timeout,
         utils=utils,
         datetime=datetime,
         timestamp=datetime.datetime.now()
