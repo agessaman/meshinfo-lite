@@ -8,41 +8,131 @@
   <h5>{{ this_page.title() }}</h5>
   
   <table class="table table-striped table-bordered table-sm">
-    <thead>
+  <thead>
+    <tr>
+      <th scope="col">Timestamp</th>
+      <th scope="col">From</th>
+      <th scope="col">To</th>
+      <th scope="col">Route</th>
+      <th scope="col">Hops</th>
+      <th scope="col">Success</th>
+      <th scope="col">Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in traceroutes %}
       <tr>
-        <th scope="col">Timestamp</th>
-        <th scope="col">From</th>
-        <th scope="col">To</th>
-        <th scope="col">Route</th>
-        <th scope="col">Route Hops</th>
-        <th scope="col">Actions</th>  <!-- New column -->
-      </tr>
-    </thead>
-    <tbody>
-      {% for item in traceroutes %}
-        <tr>
-          <td>{{ format_timestamp(item.ts_created) }}</td>
-          <td>
-            {% set fnodeid = utils.convert_node_id_from_int_to_hex(item["from_id"]) %}
-            {% if fnodeid in nodes %}
-              <a href="node_{{ fnodeid }}.html">{{ nodes[fnodeid].short_name }}</a>
-            {% else %}
-              <span>UNK</span>
-            {% endif %}
-          </td>
-          <td>
-            {% set tnodeid = utils.convert_node_id_from_int_to_hex(item["to_id"]) %}
-            {% if tnodeid in nodes %}
-              <a href="node_{{ tnodeid }}.html">{{ nodes[tnodeid].short_name }}</a>
-            {% else %}
-              <span>UNK</span>
-            {% endif %}
-          </td>
-          <td>
+        <td>{{ format_timestamp(item.ts_created) }}</td>
+        <td>
+          {% set fnodeid = utils.convert_node_id_from_int_to_hex(item["from_id"]) %}
+          {% if fnodeid in nodes %}
+            <a href="node_{{ fnodeid }}.html">{{ nodes[fnodeid].short_name }}</a>
+          {% else %}
+            <span>UNK</span>
+          {% endif %}
+        </td>
+        <td>
+          {% set tnodeid = utils.convert_node_id_from_int_to_hex(item["to_id"]) %}
+          {% if tnodeid in nodes %}
+            <a href="node_{{ tnodeid }}.html">{{ nodes[tnodeid].short_name }}</a>
+          {% else %}
+            <span>UNK</span>
+          {% endif %}
+        </td>
+        <td>
+          {# Forward Route #}
+          <div class="d-flex align-items-center flex-wrap mb-1">
+            <span class="text-muted me-2" style="min-width: 70px;">Outbound:</span>
             <div class="d-flex align-items-center flex-wrap">
-              {% set fnodeid = utils.convert_node_id_from_int_to_hex(item["from_id"]) %}
-              <div class="d-inline-flex align-items-center me-2 mb-1">
-                <div class="position-relative">
+              {# Source node #}
+              <div class="d-inline-flex align-items-center me-2">
+                {% if fnodeid in nodes %}
+                  <a href="node_{{ fnodeid }}.html" class="text-decoration-none fw-bold">
+                    {{ nodes[fnodeid].short_name }}
+                  </a>
+                  {% if item.route|length == 0 and item.snr_towards %}
+                    {{ snr_badge(item.snr_towards[0]) }}
+                  {% endif %}
+                {% else %}
+                  <span class="fw-bold">UNK</span>
+                {% endif %}
+              </div>
+
+              {# Forward hops #}
+              {% for hop in item.route %}
+                <span class="mx-1">⇢</span>
+                <div class="d-inline-flex align-items-center me-2">
+                  {% set hnodeid = utils.convert_node_id_from_int_to_hex(hop) %}
+                  {% set hnode = nodes[hnodeid] if hnodeid in nodes else None %}
+                  {% if hnode %}
+                    <a href="node_{{ hnodeid }}.html" class="text-decoration-none">
+                      {{ hnode.short_name }}
+                    </a>
+                  {% else %}
+                    <span>UNK</span>
+                  {% endif %}
+                  {% if item.snr_towards and loop.index0 < item.snr_towards|length %}
+                    {{ snr_badge(item.snr_towards[loop.index0]) }}
+                  {% endif %}
+                </div>
+              {% endfor %}
+              {% if item.route_back %}
+                {# Destination node for forward path #}
+                <span class="mx-1">⇢</span>
+                <div class="d-inline-flex align-items-center">
+                  {% if tnodeid in nodes %}
+                    <a href="node_{{ tnodeid }}.html" class="text-decoration-none fw-bold">
+                      {{ nodes[tnodeid].short_name }}
+                    </a>
+                  {% else %}
+                    <span class="fw-bold">UNK</span>
+                  {% endif %}
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          {# Return Route - only show if exists #}
+          {% if item.route_back %}
+            <div class="d-flex align-items-center flex-wrap">
+              <span class="text-muted me-2" style="min-width: 70px;">Return:</span>
+              <div class="d-flex align-items-center flex-wrap">
+                {# Return source (destination node) #}
+                <div class="d-inline-flex align-items-center me-2">
+                  {% if tnodeid in nodes %}
+                    <a href="node_{{ tnodeid }}.html" class="text-decoration-none fw-bold">
+                      {{ nodes[tnodeid].short_name }}
+                    </a>
+                    {% if item.route_back|length == 0 and item.snr_back %}
+                      {{ snr_badge(item.snr_back[0]) }}
+                    {% endif %}
+                  {% else %}
+                    <span class="fw-bold">UNK</span>
+                  {% endif %}
+                </div>
+
+                {# Return hops #}
+                {% for hop in item.route_back %}
+                  <span class="mx-1">⇢</span>
+                  <div class="d-inline-flex align-items-center me-2">
+                    {% set hnodeid = utils.convert_node_id_from_int_to_hex(hop) %}
+                    {% set hnode = nodes[hnodeid] if hnodeid in nodes else None %}
+                    {% if hnode %}
+                      <a href="node_{{ hnodeid }}.html" class="text-decoration-none">
+                        {{ hnode.short_name }}
+                      </a>
+                    {% else %}
+                      <span>UNK</span>
+                    {% endif %}
+                    {% if item.snr_back and loop.index0 < item.snr_back|length %}
+                      {{ snr_badge(item.snr_back[loop.index0]) }}
+                    {% endif %}
+                  </div>
+                {% endfor %}
+
+                {# Return destination (source node) #}
+                <span class="mx-1">⇢</span>
+                <div class="d-inline-flex align-items-center">
                   {% if fnodeid in nodes %}
                     <a href="node_{{ fnodeid }}.html" class="text-decoration-none fw-bold">
                       {{ nodes[fnodeid].short_name }}
@@ -51,50 +141,26 @@
                     <span class="fw-bold">UNK</span>
                   {% endif %}
                 </div>
-                <span class="mx-2">⇢</span>
-              </div>
-
-              {% for hop in item.route %}
-                <div class="d-inline-flex align-items-center me-2 mb-1">
-                  {% set hnodeid = utils.convert_node_id_from_int_to_hex(hop) %}
-                  {% set hnode = nodes[hnodeid] if hnodeid in nodes else None %}
-                  <div class="position-relative">
-                    {% if hnode %}
-                      <a href="node_{{ hnodeid }}.html" class="text-decoration-none">
-                        {{ hnode.short_name }}
-                      </a>
-                    {% else %}
-                      <span>UNK</span>
-                    {% endif %}
-                    {% if item.snr and loop.index0 < item.snr|length %}
-                      {% set snr_value = item.snr[loop.index0] %}
-                      {{ snr_badge(snr_value) }}
-                    {% endif %}
-                  </div>
-                  {% if not loop.last %}
-                    <span class="mx-2">⇢</span>
-                  {% endif %}
-                </div>
-              {% endfor %}
-
-              {% set tnodeid = utils.convert_node_id_from_int_to_hex(item["to_id"]) %}
-              <div class="d-inline-flex align-items-center me-2 mb-1">
-                {% if item.route|length > 0 %}
-                  <span class="mx-2">⇢</span>
-                {% endif %}
-                <div class="position-relative">
-                  {% if tnodeid in nodes %}
-                    <a href="node_{{ tnodeid }}.html" class="text-decoration-none fw-bold">
-                      {{ nodes[tnodeid].short_name }}
-                    </a>
-                  {% else %}
-                    <span class="fw-bold">UNK</span>
-                  {% endif %}
-                </div>
               </div>
             </div>
-          </td>
-        <td>{{ item.route | length }}</td>
+          {% endif %}
+        </td>
+        <td>
+          {% if item.route_back %}
+            <div class="text-nowrap">
+              <span class="text-muted">Out:</span> {{ item.route|length }}
+              <br>
+              <span class="text-muted">Return:</span> {{ item.route_back|length }}
+            </div>
+          {% else %}
+            {{ item.route|length }}
+          {% endif %}
+        </td>
+        <td class="text-center">
+          {% if item.success %}
+            <i class="bi bi-check-circle-fill text-success" title="Traceroute completed successfully"></i>
+          {% endif %}
+        </td>
         <td>
           {% set from_id_hex = utils.convert_node_id_from_int_to_hex(item["from_id"]) %}
           {% set to_id_hex = utils.convert_node_id_from_int_to_hex(item["to_id"]) %}

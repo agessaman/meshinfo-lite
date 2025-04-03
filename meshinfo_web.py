@@ -210,14 +210,25 @@ def traceroute_map():
     if not traceroute_data:
         abort(404)
     
-    # Format the route data for easy use in the template
+    # Format the forward route data
     route = []
     if traceroute_data['route']:
         route = [int(hop) for hop in traceroute_data['route'].split(';')]
     
-    snr_values = []
-    if traceroute_data['snr']:
-        snr_values = [float(s)/4 for s in traceroute_data['snr'].split(';')]
+    # Format the return route data
+    route_back = []
+    if traceroute_data['route_back']:
+        route_back = [int(hop) for hop in traceroute_data['route_back'].split(';')]
+    
+    # Format the forward SNR values
+    snr_towards = []
+    if traceroute_data['snr_towards']:
+        snr_towards = [float(s) for s in traceroute_data['snr_towards'].split(';')]
+    
+    # Format the return SNR values
+    snr_back = []
+    if traceroute_data['snr_back']:
+        snr_back = [float(s) for s in traceroute_data['snr_back'].split(';')]
     
     # Create a clean traceroute object for the template
     traceroute = {
@@ -227,8 +238,11 @@ def traceroute_map():
         'to_id': traceroute_data['to_id'],
         'to_id_hex': utils.convert_node_id_from_int_to_hex(traceroute_data['to_id']),
         'ts_created': traceroute_data['ts_created'],
-        'route': route,  # Now this is a list of integers
-        'snr': snr_values  # Now this is a list of floats
+        'route': route,
+        'route_back': route_back,
+        'snr_towards': snr_towards,
+        'snr_back': snr_back,
+        'success': traceroute_data['success']
     }
     
     cursor.close()

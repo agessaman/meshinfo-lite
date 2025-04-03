@@ -214,13 +214,12 @@ WHERE a.id = %s
         cur.execute("SELECT COUNT(*) FROM traceroute")
         total = cur.fetchone()[0]
         
-        # Get paginated results
-        sql = """SELECT traceroute_id, from_id, to_id, route, 
-            COALESCE(snr, '') as snr,  
-            ts_created
-        FROM traceroute 
-        ORDER BY ts_created DESC
-        LIMIT %s OFFSET %s"""
+        # Get paginated results with all fields
+        sql = """SELECT traceroute_id, from_id, to_id, route, route_back,
+            snr_towards, snr_back, success, channel, hop_limit, ts_created
+            FROM traceroute 
+            ORDER BY ts_created DESC
+            LIMIT %s OFFSET %s"""
         
         offset = (page - 1) * per_page
         cur.execute(sql, (per_page, offset))
@@ -229,12 +228,17 @@ WHERE a.id = %s
         traceroutes = []
         for row in rows:
             traceroutes.append({
-                "id": row[0],  # We keep using 'id' in the returned dict for compatibility
+                "id": row[0],
                 "from_id": row[1],
                 "to_id": row[2],
                 "route": [int(a) for a in row[3].split(";")] if row[3] else [],
-                "snr": [float(s) / 4 for s in row[4].split(";")] if row[4] else [],
-                "ts_created": row[5].timestamp()
+                "route_back": [int(a) for a in row[4].split(";")] if row[4] else [],
+                "snr_towards": [float(s) for s in row[5].split(";")] if row[5] else [],
+                "snr_back": [float(s) for s in row[6].split(";")] if row[6] else [],
+                "success": row[7],
+                "channel": row[8],
+                "hop_limit": row[9],
+                "ts_created": row[10].timestamp()
             })
         cur.close()
         
@@ -247,10 +251,7 @@ WHERE a.id = %s
             "has_prev": page > 1,
             "has_next": page * per_page < total,
             "prev_num": page - 1,
-            "next_num": page + 1,
-            "iter_pages": lambda left_edge=2, left_current=2, right_current=2, right_edge=2: 
-                iter_pages(page, (total + per_page - 1) // per_page, 
-                        left_edge, left_current, right_current, right_edge)
+            "next_num": page + 1
         }
 
     def iter_pages(current_page, total_pages, left_edge=2, left_current=2, right_current=2, right_edge=2):
@@ -702,23 +703,97 @@ ts_updated = VALUES(ts_updated)"""
         from_id = self.verify_node(data["from"])
         to_id = self.verify_node(data["to"])
         payload = dict(data["decoded"]["json_payload"])
+        
+        # Process forward route and SNR
         route = None
-        snr = None
+        snr_towards = None
         if "route" in payload:
             route = ";".join(str(r) for r in payload["route"])
         if "snr_towards" in payload:
-            snr = ";".join(str(s) for s in payload["snr_towards"])
+            snr_towards = ";".join(str(s) for s in payload["snr_towards"])
+        
+        # Process return route and SNR
+        route_back = None
+        snr_back = None
+        if "route_back" in payload:
+            route_back = ";".join(str(r) for r in payload["route_back"])
+        if "snr_back" in payload:
+            snr_back = ";".join(str(s) for s in payload["snr_back"])
+
+        # A traceroute is successful if we have either:
+        # 1. A direct connection with SNR data in both directions
+        # 2. A multi-hop route with SNR data in both directions
+        is_direct = not bool(route and route_back)  # True if no hops in either direction
+        
+        success = False
+        if is_direct:
+            # For direct connections, we just need SNR data in both directions
+            success = bool(snr_towards and snr_back)
+        else:
+            # For multi-hop routes, we need both routes and their SNR data
+            success = bool(route and route_back and snr_towards and snr_back)
+
+        # Extract additional metadata
+        channel = data.get("channel", None)
+        hop_limit = data.get("hop_limit", None)
+        request_id = data.get("id", None)
+        traceroute_time = payload.get("time", None)
 
         sql = """INSERT INTO traceroute
-(from_id, to_id, route, snr, ts_created) VALUES (%s, %s, %s, %s, NOW())"""
+        (from_id, to_id, channel, hop_limit, success, request_id, route, route_back, 
+        snr_towards, snr_back, time, ts_created)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FROM_UNIXTIME(%s), NOW())"""
+        
         params = (
             from_id,
             to_id,
+            channel,
+            hop_limit,
+            success,
+            request_id,
             route,
-            snr
+            route_back,
+            snr_towards,
+            snr_back,
+            traceroute_time
         )
         self.db.cursor().execute(sql, params)
         self.db.commit()
+
+    def get_successful_traceroutes(self):
+        sql = """
+        SELECT 
+            t.traceroute_id,
+            t.from_id,
+            t.to_id,
+            t.route,
+            t.route_back,
+            t.snr,
+            t.snr_back,
+            t.ts_created,
+            n1.short_name as from_name,
+            n2.short_name as to_name
+        FROM traceroute t
+        JOIN nodeinfo n1 ON t.from_id = n1.id
+        JOIN nodeinfo n2 ON t.to_id = n2.id
+        WHERE t.route_back IS NOT NULL
+        AND t.route_back != ''
+        ORDER BY t.ts_created DESC
+        """
+        cur = self.db.cursor()
+        cur.execute(sql)
+        
+        results = []
+        column_names = [desc[0] for desc in cur.description]
+        for row in cur.fetchall():
+            result = dict(zip(column_names, row))
+            # Convert timestamp to Unix timestamp if needed
+            if isinstance(result['ts_created'], datetime.datetime):
+                result['ts_created'] = result['ts_created'].timestamp()
+            results.append(result)
+        
+        cur.close()
+        return results
 
     def store_telemetry(self, data):
         cur = self.db.cursor()
@@ -1116,10 +1191,10 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
         try:
             import migrations.add_message_reception as add_message_reception
             import migrations.add_traceroute_snr as add_traceroute_snr
-            import migrations.add_traceroute_id as add_traceroute_id  # Add this line
+            import migrations.add_traceroute_id as add_traceroute_id
             add_message_reception.migrate(self.db)
             add_traceroute_snr.migrate(self.db)
-            add_traceroute_id.migrate(self.db)  # Add this line
+            add_traceroute_id.migrate(self.db)
         except ImportError as e:
             logging.error(f"Failed to import migration module: {e}")
             pass

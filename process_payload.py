@@ -124,9 +124,31 @@ def get_data(msg):
             )
         elif portnum == portnums_pb2.TRACEROUTE_APP:
             j["type"] = "traceroute"
-            j["decoded"]["json_payload"] = to_json(
-                mesh_pb2.RouteDiscovery().FromString(msg.decoded.payload)
+            route_discovery = mesh_pb2.RouteDiscovery().FromString(msg.decoded.payload)
+            route_data = to_json(route_discovery)
+            
+            # Log the raw route data for debugging
+            logging.debug(f"Raw traceroute data: {json.dumps(route_data, indent=2)}")
+            
+            # Ensure we have all required fields with proper defaults
+            route_data.setdefault("route", [])
+            route_data.setdefault("route_back", [])
+            route_data.setdefault("snr_towards", [])
+            route_data.setdefault("snr_back", [])
+            route_data.setdefault("time", None)
+            
+            # A traceroute is successful if we have SNR data in either direction,
+            # even for direct (zero-hop) connections
+            route_data["success"] = (
+                (len(route_data["snr_towards"]) > 0 or len(route_data["route"]) == 0) and
+                (len(route_data["snr_back"]) > 0 or len(route_data["route_back"]) == 0)
             )
+            
+            j["decoded"]["json_payload"] = route_data
+            
+            # Log the processed payload
+            logging.debug(f"Processed traceroute payload: {json.dumps(j['decoded']['json_payload'], indent=2)}")
+
         elif portnum == portnums_pb2.POSITION_APP:
             j["type"] = "position"
             j["decoded"]["json_payload"] = to_json(
@@ -142,7 +164,12 @@ def get_data(msg):
             msg_type = j["type"]
             msg_from = j["from"]
             
-            if msg_type == "text" and j.get("hop_limit") is not None and j.get("hop_start") is not None:
+            if msg_type == "traceroute":
+                route_info = j["decoded"]["json_payload"]
+                forward_hops = len(route_info.get("route", []))
+                return_hops = len(route_info.get("route_back", []))
+                logging.info(f"Received traceroute from {msg_from} with {forward_hops} forward hops and {return_hops} return hops")
+            elif msg_type == "text" and j.get("hop_limit") is not None and j.get("hop_start") is not None:
                 hop_count = j["hop_start"] - j["hop_limit"]
                 logging.info(f"Received {msg_type} from {msg_from} with {hop_count} hops ({j['hop_limit']}/{j['hop_start']})")
             else:
