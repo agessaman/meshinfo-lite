@@ -15,7 +15,7 @@
       <th scope="col">To</th>
       <th scope="col">Route</th>
       <th scope="col">Hops</th>
-      <th scope="col">Success</th>
+      {# <th scope="col">Success</th> #}
       <th scope="col">Actions</th>
     </tr>
   </thead>
@@ -156,11 +156,11 @@
             {{ item.route|length }}
           {% endif %}
         </td>
-        <td class="text-center">
+        {# <td class="text-center">
           {% if item.success %}
             <i class="bi bi-check-circle-fill text-success" title="Traceroute completed successfully"></i>
           {% endif %}
-        </td>
+        </td> #}
         <td>
           {% set from_id_hex = utils.convert_node_id_from_int_to_hex(item["from_id"]) %}
           {% set to_id_hex = utils.convert_node_id_from_int_to_hex(item["to_id"]) %}
