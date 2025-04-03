@@ -1,63 +1,74 @@
 def migrate(db):
     cursor = db.cursor()
     try:
-        # First check if traceroute_id exists
-        cursor.execute("""
-            SELECT COUNT(*) 
-            FROM INFORMATION_SCHEMA.COLUMNS 
-            WHERE TABLE_NAME = 'traceroute' 
-            AND COLUMN_NAME = 'traceroute_id'
-        """)
+        # Start transaction
+        cursor.execute("START TRANSACTION")
         
-        if cursor.fetchone()[0] == 0:
-            # Add the primary key and metadata columns
-            cursor.execute("""
-                ALTER TABLE traceroute 
-                ADD COLUMN traceroute_id BIGINT AUTO_INCREMENT PRIMARY KEY FIRST,
-                ADD COLUMN request_id BIGINT NULL AFTER traceroute_id,
-                ADD COLUMN channel INT UNSIGNED NULL AFTER to_id,
-                ADD COLUMN hop_limit INT UNSIGNED NULL AFTER channel,
-                ADD COLUMN success TINYINT(1) NULL AFTER hop_limit,
-                ADD COLUMN time TIMESTAMP NULL
-            """)
-            db.commit()
-
-        # Check and update SNR columns
-        cursor.execute("""
-            SELECT COUNT(*) 
-            FROM INFORMATION_SCHEMA.COLUMNS 
-            WHERE TABLE_NAME = 'traceroute' 
-            AND COLUMN_NAME = 'snr_towards'
-        """)
+        # Check existing columns to determine what needs to be added
+        needed_columns = {
+            'traceroute_id': 'BIGINT AUTO_INCREMENT PRIMARY KEY',
+            'request_id': 'BIGINT NULL',
+            'channel': 'INT UNSIGNED NULL',
+            'hop_limit': 'INT UNSIGNED NULL',
+            'success': 'TINYINT(1) NULL',
+            'time': 'TIMESTAMP NULL',
+            'snr_towards': 'TEXT NULL',
+            'snr_back': 'TEXT NULL',
+            'route_back': 'VARCHAR(255) NULL'
+        }
         
-        if cursor.fetchone()[0] == 0:
-            # First, rename existing snr column to snr_towards if it exists
-            cursor.execute("""
-                ALTER TABLE traceroute 
-                CHANGE COLUMN snr snr_towards TEXT NULL,
-                ADD COLUMN snr_back TEXT NULL AFTER snr_towards
-            """)
-            db.commit()
-
-        # Check and add route_back column
+        # Get existing columns
         cursor.execute("""
-            SELECT COUNT(*) 
+            SELECT COLUMN_NAME 
             FROM INFORMATION_SCHEMA.COLUMNS 
-            WHERE TABLE_NAME = 'traceroute' 
-            AND COLUMN_NAME = 'route_back'
+            WHERE TABLE_NAME = 'traceroute'
         """)
+        existing_columns = [row[0] for row in cursor.fetchall()]
         
-        if cursor.fetchone()[0] == 0:
-            cursor.execute("""
-                ALTER TABLE traceroute
-                ADD COLUMN route_back VARCHAR(255) NULL AFTER route
-            """)
-            db.commit()
-
+        # Build ALTER TABLE statement
+        alter_statements = []
+        
+        # Handle special case for SNR rename if needed
+        if 'snr' in existing_columns and 'snr_towards' not in existing_columns:
+            alter_statements.append("CHANGE COLUMN snr snr_towards TEXT NULL")
+            existing_columns.remove('snr')
+            existing_columns.append('snr_towards')
+        
+        # Add missing columns
+        for col, type_def in needed_columns.items():
+            if col not in existing_columns:
+                if col == 'traceroute_id':
+                    alter_statements.append(f"ADD COLUMN {col} {type_def} FIRST")
+                elif col == 'request_id':
+                    alter_statements.append(f"ADD COLUMN {col} {type_def} AFTER traceroute_id")
+                elif col == 'channel':
+                    alter_statements.append(f"ADD COLUMN {col} {type_def} AFTER to_id")
+                elif col == 'hop_limit':
+                    alter_statements.append(f"ADD COLUMN {col} {type_def} AFTER channel")
+                elif col == 'success':
+                    alter_statements.append(f"ADD COLUMN {col} {type_def} AFTER hop_limit")
+                elif col == 'time':
+                    alter_statements.append(f"ADD COLUMN {col} {type_def} AFTER success")
+                elif col == 'snr_back':
+                    alter_statements.append(f"ADD COLUMN {col} {type_def} AFTER snr_towards")
+                elif col == 'route_back':
+                    alter_statements.append(f"ADD COLUMN {col} {type_def} AFTER route")
+                else:
+                    alter_statements.append(f"ADD COLUMN {col} {type_def}")
+        
+        # Execute ALTER TABLE if there are changes needed
+        if alter_statements:
+            alter_sql = "ALTER TABLE traceroute " + ", ".join(alter_statements)
+            print(f"Executing: {alter_sql}")
+            cursor.execute(alter_sql)
+        
+        # Commit transaction
+        db.commit()
         print("Migration completed successfully")
         
     except Exception as e:
         print(f"Migration error: {str(e)}")
+        db.rollback()
         raise
     finally:
         cursor.close()
