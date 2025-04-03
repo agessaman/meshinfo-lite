@@ -88,6 +88,54 @@
             </div>
           </div>
         </div>
+        
+        {# Add profile link if we have at least two known positions #}
+        {% set known_positions = [] %}
+
+        {# Debug source node #}
+        <!-- Source node check: {{ traceroute.from_id_hex }} -->
+        <!-- Has position: {{ nodes[traceroute.from_id_hex].position if traceroute.from_id_hex in nodes else 'Node not found' }} -->
+        {% if traceroute.from_id_hex in nodes and nodes[traceroute.from_id_hex].position %}
+        {% set _ = known_positions.append([
+            nodes[traceroute.from_id_hex].position.longitude_i / 10000000,
+            nodes[traceroute.from_id_hex].position.latitude_i / 10000000
+        ]) %}
+        {% endif %}
+
+        {# Debug hop nodes #}
+        {% for hop in traceroute.route %}
+        {% set hop_id = utils.convert_node_id_from_int_to_hex(hop) %}
+        <!-- Hop node check: {{ hop_id }} -->
+        <!-- Has position: {{ nodes[hop_id].position if hop_id in nodes else 'Node not found' }} -->
+        {% if hop_id in nodes and nodes[hop_id].position %}
+            {% set _ = known_positions.append([
+            nodes[hop_id].position.longitude_i / 10000000,
+            nodes[hop_id].position.latitude_i / 10000000
+            ]) %}
+        {% endif %}
+        {% endfor %}
+
+        {# Debug destination node #}
+        <!-- Destination node check: {{ traceroute.to_id_hex }} -->
+        <!-- Has position: {{ nodes[traceroute.to_id_hex].position if traceroute.to_id_hex in nodes else 'Node not found' }} -->
+        {% if traceroute.to_id_hex in nodes and nodes[traceroute.to_id_hex].position %}
+        {% set _ = known_positions.append([
+            nodes[traceroute.to_id_hex].position.longitude_i / 10000000,
+            nodes[traceroute.to_id_hex].position.latitude_i / 10000000
+        ]) %}
+        {% endif %}
+
+        <!-- Total known positions: {{ known_positions|length }} -->
+        {% if known_positions|length >= 2 %}
+        <div class="mt-3">
+            <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0{% for pos in known_positions %}&ll{{ loop.index }}={{ pos[1] }},{{ pos[0] }}{% endfor %}" 
+            target="_blank" 
+            class="btn btn-sm btn-outline-secondary">
+            🏔️ Visualize Profile
+            </a>
+        </div>
+        {% endif %}
+        
       </p>
     </div>
   </div>
@@ -368,90 +416,106 @@
     
     // Create lines between nodes
     for (var i = 0; i < allpoints.length - 1; i++) {
-      var fromPoint = allpoints[i];
-      var toPoint = allpoints[i+1];
-      var points = [fromPoint, toPoint];
-      
-      // Calculate distance for this segment
-      var distance = calculateDistance(
+    var fromPoint = allpoints[i];
+    var toPoint = allpoints[i+1];
+    var points = [fromPoint, toPoint];
+    
+    // Calculate distance for this segment
+    var distance = calculateDistance(
         fromPoint[1], fromPoint[0], 
         toPoint[1], toPoint[0]
-      );
-      
-      // Get SNR for this hop
-      var snr = null;
-      {% if traceroute.snr %}
+    );
+    
+    // Get SNR for this hop
+    var snr = null;
+    {% if traceroute.snr %}
         {% for snr_value in traceroute.snr %}
-          if (i == {{ loop.index0 }}) {
+        if (i == {{ loop.index0 }}) {
             snr = {{ snr_value }};
-          }
+        }
         {% endfor %}
-      {% endif %}
-      
-      // Transform coordinates from EPSG:4326 to EPSG:3857
-      for (var j = 0; j < points.length; j++) {
+    {% endif %}
+    
+    // Transform coordinates from EPSG:4326 to EPSG:3857
+    for (var j = 0; j < points.length; j++) {
         points[j] = ol.proj.transform(points[j], 'EPSG:4326', 'EPSG:3857');
-      }
-      
-      // Create line feature
-      var line = new ol.Feature({
+    }
+    
+    // Create line feature
+    var line = new ol.Feature({
         geometry: new ol.geom.LineString(points)
-      });
-      
-      // Style the line
-      line.setStyle(new ol.style.Style({
+    });
+    
+    // Style the line
+    line.setStyle(new ol.style.Style({
         stroke: new ol.style.Stroke({
-          color: '#44AA44',
-          width: 3
+        color: '#44AA44',
+        width: 3
         })
-      }));
-      
-      lines.push(line);
-      
-      // Add label at the middle of the line
-      var midPoint = [
+    }));
+    
+    lines.push(line);
+    
+    // Add label at the middle of the line
+    var midPoint = [
         (points[0][0] + points[1][0]) / 2,
         (points[0][1] + points[1][1]) / 2
-      ];
-      
-      var label = new ol.Feature({
+    ];
+    
+    var label = new ol.Feature({
         geometry: new ol.geom.Point(midPoint)
-      });
-      
-      var labelText = distance + ' km';
-      if (snr !== null) {
+    });
+    
+    var labelText = distance + ' km';
+    if (snr !== null) {
         labelText += '\nSNR: ' + snr + ' dB';
-      }
-      if (i > 0) {
+    }
+    // Only show hop number for intermediate hops (not source-to-first or last-to-dest)
+    if (i > 0 && i < allpoints.length - 2) {
         labelText += '\nHop #' + i;
-      }
-      
-      label.setStyle(new ol.style.Style({
+    }
+
+    // Add profile link if both points have known locations
+    var fromLat = allpoints[i][1];
+    var fromLon = allpoints[i][0];
+    var toLat = allpoints[i+1][1];
+    var toLon = allpoints[i+1][0];
+    
+    if (!isNaN(fromLat) && !isNaN(fromLon) && !isNaN(toLat) && !isNaN(toLon)) {
+        labelText += '\n🏔️';
+        
+        // Store the profile URL in the feature's properties
+        label.set('profileUrl', 
+        `https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1=${fromLat},${fromLon}&ll2=${toLat},${toLon}`
+        );
+    }
+    
+    label.setStyle(new ol.style.Style({
         text: new ol.style.Text({
-          text: labelText,
-          font: '12px Arial',
-          fill: new ol.style.Fill({ color: '#000000' }),
-          stroke: new ol.style.Stroke({
+        text: labelText,
+        font: '12px Arial',
+        fill: new ol.style.Fill({ color: '#000000' }),
+        stroke: new ol.style.Stroke({
             color: '#ffffff',
             width: 3
-          }),
-          padding: [3, 5, 3, 5],
-          offsetY: -20, // Move label up by 20 pixels
-          backgroundFill: new ol.style.Fill({
+        }),
+        padding: [3, 5, 3, 5],
+        offsetY: -20,
+        backgroundFill: new ol.style.Fill({
             color: 'rgba(255, 255, 255, 0.85)'
-          }),
-          backgroundStroke: new ol.style.Stroke({
+        }),
+        backgroundStroke: new ol.style.Stroke({
             color: 'rgba(0, 0, 0, 0.4)',
             width: 1,
             lineCap: 'round',
             lineJoin: 'round'
-          }),
-          placement: 'point', // Ensure consistent placement
-          overflow: true // Allow text to extend beyond its background
+        }),
+        placement: 'point',
+        overflow: true
         })
-      }));
-      
-      labels.push(label);
+    }));
+    
+    labels.push(label);
     }
   {% endif %}
 
@@ -501,81 +565,90 @@
   });
   map.addOverlay(overlay);
   
-  map.on('click', function(evt) {
+    map.on('click', function(evt) {
     var feature = map.forEachFeatureAtPixel(evt.pixel, function(feature) {
         return feature;
     });
     
-    if (feature && feature.get('node')) {
-        var node = feature.get('node');
-        var coordinates = feature.getGeometry().getCoordinates();
-        
-        var html = '<div class="p-2">';
-        
-        if (node.type === 'unknown') {
-            // Add node name and link with full name (if known)
-            if (node.name !== 'Unknown') {
-                html += `<h6><a href="node_${node.id}.html">${node.longName} (${node.name})</a></h6>`;
-            } else {
-                html += '<h6>Unknown Node</h6>';
-            }
+    if (feature) {
+        if (feature.get('node')) {
+            var node = feature.get('node');
+            var coordinates = feature.getGeometry().getCoordinates();
             
-            // Add badge and metrics consistent with other nodes
-            html += `<span class="badge" style="background-color: #FFA500">Hop #${node.hopNumber}</span><br>`;
-            if (node.snr !== null) {
-                html += `<strong>SNR:</strong> ${node.snr} dB<br>`;
-            }
-            html += '<p class="text-muted small">This node\'s location is not available in the database. It is shown at an estimated position between known nodes.</p>';
-        } else {
-            // Add node name and link with full name
-            html += `<h6><a href="node_${node.id}.html">${node.longName} (${node.name})</a></h6>`;
+            var html = '<div class="p-2">';
             
-            // Add node type and metrics
-            if (node.type === 'source') {
-                html += '<span class="badge bg-danger">Source</span><br>';
-            } else if (node.type === 'destination') {
-                html += '<span class="badge bg-primary">Destination</span><br>';
-            } else if (node.type === 'hop') {
-                html += `<span class="badge bg-success">Hop #${node.hopNumber}</span><br>`;
+            if (node.type === 'unknown') {
+                // Add node name and link with full name (if known)
+                if (node.name !== 'Unknown') {
+                    html += `<h6><a href="node_${node.id}.html">${node.longName} (${node.name})</a></h6>`;
+                } else {
+                    html += '<h6>Unknown Node</h6>';
+                }
+                
+                // Add badge and metrics consistent with other nodes
+                html += `<span class="badge" style="background-color: #FFA500">Hop #${node.hopNumber}</span><br>`;
                 if (node.snr !== null) {
                     html += `<strong>SNR:</strong> ${node.snr} dB<br>`;
                 }
+                html += '<p class="text-muted small">This node\'s location is not available in the database. It is shown at an estimated position between known nodes.</p>';
+            } else {
+                // Add node name and link with full name
+                html += `<h6><a href="node_${node.id}.html">${node.longName} (${node.name})</a></h6>`;
+                
+                // Add node type and metrics
+                if (node.type === 'source') {
+                    html += '<span class="badge bg-danger">Source</span><br>';
+                } else if (node.type === 'destination') {
+                    html += '<span class="badge bg-primary">Destination</span><br>';
+                } else if (node.type === 'hop') {
+                    html += `<span class="badge bg-success">Hop #${node.hopNumber}</span><br>`;
+                    if (node.snr !== null) {
+                        html += `<strong>SNR:</strong> ${node.snr} dB<br>`;
+                    }
+                }
             }
-        }
-        
-        // Calculate distance from source
-        if (node.type !== 'source') {
-            var sourceFeature = features[0];
-            if (sourceFeature) {
-                var sourceNode = sourceFeature.get('node');
-                var distance = calculateDistance(
-                    sourceNode.lat, sourceNode.lon,
-                    node.lat, node.lon
-                );
-                html += `<strong>Distance from Source:</strong> ${isNaN(distance) ? '?' : distance} km<br>`;
+            
+            // Calculate distance from source
+            if (node.type !== 'source') {
+                var sourceFeature = features[0];
+                if (sourceFeature) {
+                    var sourceNode = sourceFeature.get('node');
+                    var distance = calculateDistance(
+                        sourceNode.lat, sourceNode.lon,
+                        node.lat, node.lon
+                    );
+                    html += `<strong>Distance from Source:</strong> ${isNaN(distance) ? '?' : distance} km<br>`;
+                }
             }
-        }
-        
-        // Calculate distance to destination for source and hops
-        if (node.type !== 'destination') {
-            var destFeature = features.find(f => f.get('node') && f.get('node').type === 'destination');
-            if (destFeature) {
-                var destNode = destFeature.get('node');
-                var distance = calculateDistance(
-                    node.lat, node.lon,
-                    destNode.lat, destNode.lon
-                );
-                html += `<strong>Distance to Destination:</strong> ${isNaN(distance) ? '?' : distance} km<br>`;
+            
+            // Calculate distance to destination for source and hops
+            if (node.type !== 'destination') {
+                var destFeature = features.find(f => f.get('node') && f.get('node').type === 'destination');
+                if (destFeature) {
+                    var destNode = destFeature.get('node');
+                    var distance = calculateDistance(
+                        node.lat, node.lon,
+                        destNode.lat, destNode.lon
+                    );
+                    html += `<strong>Distance to Destination:</strong> ${isNaN(distance) ? '?' : distance} km<br>`;
+                }
             }
+            
+            html += '</div>';
+            content.innerHTML = html;
+            overlay.setPosition(coordinates);
+        } else {
+            // Check if the feature has a profile URL (it's a label)
+            var profileUrl = feature.get('profileUrl');
+            if (profileUrl) {
+                window.open(profileUrl, '_blank');
+            }
+            overlay.setPosition(undefined);
         }
-        
-        html += '</div>';
-        content.innerHTML = html;
-        overlay.setPosition(coordinates);
     } else {
         overlay.setPosition(undefined);
     }
-});
+  });
   
   // Change cursor over features
   map.on('pointermove', function(e) {
