@@ -429,7 +429,7 @@
     
     // Add destination node
     {% set to_id = traceroute.to_id_hex %}
-    {% if to_id in nodes and nodes[to_id].position %}
+    {% if to_id in nodes and nodes[to_id].position and nodes[to_id].position.longitude_i is not none and nodes[to_id].position.latitude_i is not none %}
         // Handle any remaining unknown nodes before destination
         if (unknownSequence.length > 0) {
             var nextKnownPoint = [
@@ -456,34 +456,47 @@
             }
         }
 
-    // Add destination node
-    var dest = new ol.Feature({
-        geometry: new ol.geom.Point(ol.proj.fromLonLat([
+        // Add destination node
+        var dest = new ol.Feature({
+            geometry: new ol.geom.Point(ol.proj.fromLonLat([
+                {{ nodes[to_id].position.longitude_i / 10000000 }},
+                {{ nodes[to_id].position.latitude_i / 10000000 }}
+            ])),
+            node: {
+                id: '{{ to_id }}',
+                name: '{{ nodes[to_id].short_name }}',
+                longName: '{{ nodes[to_id].long_name }}',
+                type: 'destination',
+                lat: {{ nodes[to_id].position.latitude_i / 10000000 }},
+                lon: {{ nodes[to_id].position.longitude_i / 10000000 }}
+            }
+        });
+        dest.setStyle(destStyle);
+        features.push(dest);
+        allpoints.push([
             {{ nodes[to_id].position.longitude_i / 10000000 }},
             {{ nodes[to_id].position.latitude_i / 10000000 }}
-        ])),
-        node: {
+        ]);
+
+        // Reset for return path
+        lastKnownPoint = [
+            {{ nodes[to_id].position.longitude_i / 10000000 }},
+            {{ nodes[to_id].position.latitude_i / 10000000 }}
+        ];
+        unknownSequence = [];
+    {% else %}
+        // Add destination to unknown sequence if it exists in nodes but has no position
+        {% if to_id in nodes %}
+        unknownSequence.push({
             id: '{{ to_id }}',
             name: '{{ nodes[to_id].short_name }}',
             longName: '{{ nodes[to_id].long_name }}',
-            type: 'destination',
-            lat: {{ nodes[to_id].position.latitude_i / 10000000 }},
-            lon: {{ nodes[to_id].position.longitude_i / 10000000 }}
-        }
-    });
-    dest.setStyle(destStyle);
-    features.push(dest);
-    allpoints.push([
-        {{ nodes[to_id].position.longitude_i / 10000000 }},
-        {{ nodes[to_id].position.latitude_i / 10000000 }}
-    ]);
-
-    // Reset for return path
-    lastKnownPoint = [
-        {{ nodes[to_id].position.longitude_i / 10000000 }},
-        {{ nodes[to_id].position.latitude_i / 10000000 }}
-    ];
-    unknownSequence = [];
+            type: 'unknown',
+            direction: 'forward',
+            hopNumber: {{ traceroute.route|length + 1 }}
+        });
+        {% endif %}
+    {% endif %}
 
     // Add return hops
     {% if traceroute.route_back %}
@@ -772,7 +785,7 @@ for (var i = 0; i < allpoints.length - 1; i++) {
         labels.push(label);
     }
 }
-{% endif %}
+
 
   // Add features to map
   const vectorLayer = new ol.layer.Vector({
