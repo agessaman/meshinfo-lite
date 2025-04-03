@@ -560,13 +560,39 @@
             {% endif %}
         {% endfor %}
 
-        // After all return hops, add the source point again to complete the return path
+        // Handle any remaining unknown nodes before final return to source
+        if (unknownSequence.length > 0) {
+            var sourcePoint = [
+                {{ nodes[from_id].position.longitude_i / 10000000 }},
+                {{ nodes[from_id].position.latitude_i / 10000000 }}
+            ];
+            
+            // Place remaining unknown nodes between last known point and source
+            for (var i = 0; i < unknownSequence.length; i++) {
+                var fraction = (i + 1) / (unknownSequence.length + 1);
+                var midPoint = [
+                    lastKnownPoint[0] + (sourcePoint[0] - lastKnownPoint[0]) * fraction,
+                    lastKnownPoint[1] + (sourcePoint[1] - lastKnownPoint[1]) * fraction
+                ];
+                
+                var unknownNode = new ol.Feature({
+                    geometry: new ol.geom.Point(ol.proj.fromLonLat(midPoint)),
+                    node: unknownSequence[i]  // Include all node properties directly
+                });
+                unknownNode.setStyle(unknownStyle);
+                features.push(unknownNode);
+                allpoints.push(midPoint);
+            }
+            unknownSequence = [];
+        }
+
+        // After all return hops and unknown nodes, add the source point to complete the return path
         allpoints.push([
             {{ nodes[from_id].position.longitude_i / 10000000 }},
             {{ nodes[from_id].position.latitude_i / 10000000 }}
         ]);
     {% endif %}
-{% endif %}
+  {% endif %}
     
 // Create lines between nodes
 for (var i = 0; i < allpoints.length - 1; i++) {
@@ -626,28 +652,38 @@ for (var i = 0; i < allpoints.length - 1; i++) {
     // Style the line based on path type
     if (isDirectConnection) {
         if (isForwardPath) {
+            // For direct connections, use solid green for forward
             line.setStyle(forwardLineStyle);
         } else {
-            {% if traceroute.route_back %}
+            // For return on direct connections, use solid purple unless it's the final segment
+            var isLastSegment = i === allpoints.length - 2;
+            if (isLastSegment) {
+                line.setStyle(returnDashedLineStyle);  // Final return segment always dashed
+            } else {
                 line.setStyle(returnLineStyle);
-            {% else %}
-                line.setStyle(returnDashedLineStyle);
-            {% endif %}
+            }
         }
     } else {
-        var isLastForwardHop = i === {{ traceroute.route|length }};
-        var isLastReturnHop = i === allpoints.length - 2;
-        
+        // For multi-hop routes
         if (isForwardPath) {
-            {% if not traceroute.route_back %}
-                // If no return route, make last hop to destination dashed
-                line.setStyle(isLastForwardHop ? forwardDashedLineStyle : forwardLineStyle);
-            {% else %}
-                line.setStyle(forwardLineStyle);
-            {% endif %}
+            // Forward route segments
+            var isLastForwardSegment = i === {{ traceroute.route|length }}; // Last hop to destination
+            
+            // Use dashed green only if this is the last forward segment AND there's no return route
+            if (isLastForwardSegment && !{{ 'true' if traceroute.route_back else 'false' }}) {
+                line.setStyle(forwardDashedLineStyle);
+            } else {
+                line.setStyle(forwardLineStyle);  // All other forward segments use solid green
+            }
         } else {
-            // Return path - only dash the final leg back to source
-            line.setStyle(isLastReturnHop ? returnDashedLineStyle : returnLineStyle);
+            // Return route segments
+            var isLastReturnSegment = i === allpoints.length - 2;
+            
+            if (isLastReturnSegment) {
+                line.setStyle(returnDashedLineStyle);  // Last return segment always dashed
+            } else {
+                line.setStyle(returnLineStyle);  // All other return segments solid
+            }
         }
     }
     
@@ -672,12 +708,19 @@ for (var i = 0; i < allpoints.length - 1; i++) {
     
     // Check if either endpoint is an unknown node
     var hasUnknownEndpoint = false;
-    if (i < features.length) {
-        var fromNode = features[i].get('node');
-        var toNode = features[i + 1] ? features[i + 1].get('node') : null;
-        hasUnknownEndpoint = (fromNode && fromNode.type === 'unknown') || 
-                            (toNode && toNode.type === 'unknown');
-    }
+    var fromFeature = features.find(f => {
+        var node = f.get('node');
+        if (!node) return false;
+        return node.lon === fromLon && node.lat === fromLat;
+    });
+    var toFeature = features.find(f => {
+        var node = f.get('node');
+        if (!node) return false;
+        return node.lon === toLon && node.lat === toLat;
+    });
+    
+    hasUnknownEndpoint = (fromFeature && fromFeature.get('node').type === 'unknown') || 
+                        (toFeature && toFeature.get('node').type === 'unknown');
     
     if (!isNaN(fromLat) && !isNaN(fromLon) && !isNaN(toLat) && !isNaN(toLon) && !hasUnknownEndpoint) {
         var distance = calculateDistance(
