@@ -29,6 +29,11 @@ class CustomJSONEncoder(json.JSONEncoder):
         return super().default(obj)
     
 class MeshData:
+    # Minimum seconds between retention cleanups, so pruning doesn't scan
+    # tables on every incoming MQTT message.
+    MESHLOG_PRUNE_INTERVAL = 600
+    TELEMETRY_PRUNE_INTERVAL = 3600
+
     def __init__(self):
         config = configparser.ConfigParser()
         config.read('config.ini')
@@ -806,7 +811,7 @@ ORDER BY ts_created DESC"""
 
     def get_logs(self):
         logs = []
-        sql = "SELECT * FROM meshlog ORDER BY ts_created DESC"
+        sql = "SELECT * FROM meshlog ORDER BY ts_created DESC LIMIT 1000"
         cur = self.db.cursor()
         cur.execute(sql)
         rows = cur.fetchall()
@@ -1344,14 +1349,13 @@ ts_updated = VALUES(ts_updated)"""
         # Use class-level config that's already loaded
         retention_days = self.config.getint("server", "telemetry_retention_days", fallback=None) if self.config else None
         
-        # Use a simple counter to reduce cleanup frequency while still honoring retention
-        if not hasattr(self, '_telemetry_insert_count'):
-            self._telemetry_insert_count = 0
-        self._telemetry_insert_count += 1
-        
-        # Check for cleanup - run retention policy every 50 inserts or if retention_days is set
-        should_cleanup = (retention_days is not None) or (self._telemetry_insert_count % 50 == 0)
-        
+        # Run the retention policy at most once per interval rather than on
+        # every telemetry packet; each run deletes everything past retention.
+        now = time.time()
+        should_cleanup = now - getattr(self, '_telemetry_last_prune', 0) >= self.TELEMETRY_PRUNE_INTERVAL
+        if should_cleanup:
+            self._telemetry_last_prune = now
+
         if should_cleanup:
             cur = self.db.cursor()
             if retention_days:
@@ -1614,18 +1618,26 @@ ts_seen = NOW(), updated_via = %s WHERE id = %s"""
         return id
 
     def log_data(self, topic, data):
-        cur = self.db.cursor()
-        cur.execute(f"SELECT COUNT(*) FROM meshlog")
-        count = cur.fetchone()[0]
-        
+        # The raw message log only feeds /logs.html; it can be turned off
+        # entirely to save a write per MQTT message.
+        if not self.config.getboolean("server", "log_raw_messages", fallback=True):
+            return
+
         # Get configurable retention count, default to 1000 if not set
         retention_count = self.config.getint("server", "log_retention_count", fallback=1000)
-        
-        if count >= retention_count:
-            if self.debug:
-                logging.debug(f"Log retention limit reached ({count} >= {retention_count}), removing oldest log entry")
-            cur.execute(f"DELETE FROM meshlog ORDER BY ts_created ASC LIMIT 1")
-        self.db.commit()
+
+        # Prune periodically instead of on every message. Counting and
+        # deleting on each insert caused a full table scan per MQTT message.
+        now = time.time()
+        if now - getattr(self, '_meshlog_last_prune', 0) >= self.MESHLOG_PRUNE_INTERVAL:
+            self._meshlog_last_prune = now
+            cur = self.db.cursor()
+            cur.execute("""DELETE FROM meshlog WHERE ts_created <
+                (SELECT ts_created FROM
+                    (SELECT ts_created FROM meshlog ORDER BY ts_created DESC
+                     LIMIT 1 OFFSET %s) t)""", (retention_count,))
+            cur.close()
+            self.db.commit()
 
         sql = "INSERT INTO meshlog (topic, message) VALUES (%s, %s)"
         params = (topic, json.dumps(data, indent=4, cls=CustomJSONEncoder))

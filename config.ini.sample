@@ -37,6 +37,9 @@ debug=true
 timezone=America/Los_Angeles
 zero_hop_timeout=43200
 telemetry_retention_days = 30
+# Store every raw MQTT message for /logs.html (set false to skip)
+log_raw_messages=true
+log_retention_count=1000
 metrics_average_interval=7200
 
 [channels]

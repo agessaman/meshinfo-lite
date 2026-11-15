@@ -2,7 +2,9 @@
 # Memory allocation - ultra-conservative settings for small-scale project (3K nodes, 350 active)
 aria_pagecache_buffer_size = 8M
 aria_sort_buffer_size = 4M
-innodb_buffer_pool_size = 16M
+# Large enough to keep hot indexes (message_reception is >1GB) cached;
+# at 16M nearly every query went to disk.
+innodb_buffer_pool_size = 256M
 key_buffer_size = 8M
 myisam_sort_buffer_size = 4M
 

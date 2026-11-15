@@ -13,6 +13,7 @@ from .add_message_reception_ts_created import migrate as add_message_reception_t
 from .add_mapreport_fields import migrate as add_mapreport_fields
 from .add_telemetry_packet_id import migrate as add_telemetry_packet_id
 from .add_routing_messages_table import migrate as add_routing_messages_table
+from .add_retention_indexes import migrate as add_retention_indexes
 
 # List of migrations to run in order
 MIGRATIONS = [
@@ -30,4 +31,5 @@ MIGRATIONS = [
     add_mapreport_fields,
     add_telemetry_packet_id,
     add_routing_messages_table,
+    add_retention_indexes,
 ]
