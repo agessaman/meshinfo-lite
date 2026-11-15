@@ -3,24 +3,26 @@ import logging
 
 def migrate(db):
     """
-    Add ts_created indexes used by retention cleanup and recent-first queries.
+    Add time indexes used by retention cleanup and recent-window queries.
 
-    Without these, pruning meshlog and telemetry (and paging chat by time)
-    required full table scans.
+    Without these, pruning meshlog and telemetry, paging chat by time, and
+    every rx_time window query on message_reception (zero-hop links, relay
+    inference, message maps) required full table scans.
     """
     indexes = [
-        ("idx_meshlog_ts_created", "meshlog"),
-        ("idx_telemetry_ts_created", "telemetry"),
-        ("idx_text_ts_created", "text"),
+        ("idx_meshlog_ts_created", "meshlog", "ts_created"),
+        ("idx_telemetry_ts_created", "telemetry", "ts_created"),
+        ("idx_text_ts_created", "text", "ts_created"),
+        ("idx_message_reception_rx_time", "message_reception", "rx_time"),
     ]
     cursor = None
     try:
         cursor = db.cursor()
-        for name, table in indexes:
+        for name, table, column in indexes:
             cursor.execute(
-                f"CREATE INDEX IF NOT EXISTS {name} ON {table} (ts_created)"
+                f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({column})"
             )
-            logging.info(f"Ensured index {name} on {table}(ts_created)")
+            logging.info(f"Ensured index {name} on {table}({column})")
         db.commit()
     except Exception as e:
         logging.error(f"Error during retention index migration: {e}")
