@@ -332,9 +332,10 @@ def initialize_cache():
         'CACHE_DIR': cache_dir,
         'CACHE_THRESHOLD': int(config.get('server', 'app_cache_max_entries', fallback=100)),
         'CACHE_DEFAULT_TIMEOUT': int(config.get('server', 'app_cache_timeout_seconds', fallback=60)),
+        # cachelib's FileSystemCache only takes mode/hash_method here; an
+        # unknown option makes init fail and silently fall back to SimpleCache.
         'CACHE_OPTIONS': {
-            'mode': 0o600,
-            'max_size': 50 * 1024 * 1024  # 50MB max size per item
+            'mode': 0o600
         }
     }
     
